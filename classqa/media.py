@@ -18,8 +18,13 @@ AUDIO_EXT = {".mp3", ".m4a", ".wav", ".ogg", ".aac", ".flac", ".opus"}
 SUPPORTED_EXT = VIDEO_EXT | AUDIO_EXT
 
 
-class MediaError(RuntimeError):
-    """User-facing media problem (bad link, unsupported file, ffmpeg failure)."""
+from .errors import (CorruptMedia, DownloadError, DrivePermissionError, DriveQuotaError, MediaError, MediaTooLarge,
+                     MediaTooLong, MediaTooShort, NoAudioTrack, SilentAudio, UnsupportedFormat)
+
+MAX_BYTES = int(os.environ.get("CLASSQA_MAX_BYTES", str(2 * 1024 ** 3)))          # 2 GB
+MAX_DURATION_S = float(os.environ.get("CLASSQA_MAX_DURATION_S", str(3 * 3600)))   # 3 h
+MIN_DURATION_S = 60.0
+__all__ = ["MediaError"]
 
 
 def _run(cmd: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
@@ -28,7 +33,7 @@ def _run(cmd: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
     except FileNotFoundError as e:  # ffmpeg missing
         raise MediaError("ffmpeg/ffprobe not found - install ffmpeg (packages.txt on Streamlit Cloud).") from e
     except subprocess.TimeoutExpired as e:
-        raise MediaError(f"Media processing timed out: {' '.join(cmd[:3])}...") from e
+        raise CorruptMedia(f"Media processing timed out ({cmd[0]}); the file may be damaged.") from e
 
 
 # ---------------------------------------------------------------- download
@@ -40,12 +45,18 @@ def download_from_link(url: str, dest_dir: str | Path) -> Path:
     if "drive.google.com" in url or "docs.google.com" in url:
         import gdown
 
+        if "/folders/" in url:
+            raise UnsupportedFormat("That is a Google Drive *folder* link. Share the individual recording file instead.")
         m = re.search(r"/d/([\w-]{20,})", url) or re.search(r"[?&]id=([\w-]{20,})", url)
         if not m:
-            raise MediaError("Could not find a file id in that Google Drive link (folder links are not supported - share the file).")
-        out = gdown.download(id=m.group(1), output=str(dest_dir) + os.sep, quiet=True, fuzzy=True)
+            raise DownloadError("Could not find a file id in that Google Drive link.", detail=url[:120])
+        try:
+            out = gdown.download(id=m.group(1), output=str(dest_dir) + os.sep, quiet=True, fuzzy=True)
+        except Exception as e:  # noqa: BLE001 - gdown raises a variety of errors
+            raise classify_drive_error(str(e)) from e
         if not out or not Path(out).exists():
-            raise MediaError("Google Drive download failed - make sure the file is shared as 'Anyone with the link'.")
+            raise DrivePermissionError("Google Drive refused the download. Share the file as "
+                                       "'Anyone with the link can view' and try again.")
         return Path(out)
 
     import requests
@@ -55,7 +66,7 @@ def download_from_link(url: str, dest_dir: str | Path) -> Path:
             r.raise_for_status()
             ctype = r.headers.get("content-type", "")
             if "text/html" in ctype:
-                raise MediaError("That link returned a web page, not a media file. Use a direct file link or a Google Drive file link.")
+                raise UnsupportedFormat("That link returned a web page, not a media file. Use a direct file link or a Google Drive file link.")
             name = Path(url.split("?")[0]).name or "recording.mp4"
             if Path(name).suffix.lower() not in SUPPORTED_EXT:
                 name += ".mp4"
@@ -66,8 +77,24 @@ def download_from_link(url: str, dest_dir: str | Path) -> Path:
     except MediaError:
         raise
     except Exception as e:  # noqa: BLE001
-        raise MediaError(f"Download failed: {e}") from e
+        code = getattr(getattr(e, "response", None), "status_code", None)
+        if code in (401, 403):
+            raise DrivePermissionError(f"The link is not publicly accessible (HTTP {code}).") from e
+        raise DownloadError(f"Download failed: {str(e)[:150]}") from e
+    if out.stat().st_size > MAX_BYTES:
+        raise MediaTooLarge(f"File is larger than the {MAX_BYTES // 1024 ** 2} MB limit.")
     return out
+
+
+def classify_drive_error(msg: str) -> MediaError:
+    low = msg.lower()
+    if "too many users" in low or "quota" in low or "rate limit" in low:
+        return DriveQuotaError("Google Drive's download quota for this file is exhausted (too many recent downloads). "
+                               "Try again later or upload the file directly.")
+    if "permission" in low or "cannot retrieve the public link" in low or "access denied" in low or "403" in low:
+        return DrivePermissionError("Google Drive refused the download. Share the file as "
+                                    "'Anyone with the link can view' and try again.")
+    return DownloadError(f"Google Drive download failed: {msg[:150]}")
 
 
 # ---------------------------------------------------------------- probe
@@ -81,19 +108,35 @@ class MediaInfo:
 
 
 def probe(path: str | Path) -> MediaInfo:
+    """Validate a recording before any API spend. Raises a specific MediaError subclass."""
+    path = Path(path)
+    if not path.exists() or path.stat().st_size == 0:
+        raise CorruptMedia("The file is empty or missing.")
+    if path.suffix.lower() not in SUPPORTED_EXT:
+        raise UnsupportedFormat(f"Unsupported file type '{path.suffix}'. Use mp4, mov, mkv, webm or common audio formats.")
+    if path.stat().st_size > MAX_BYTES:
+        raise MediaTooLarge(f"File is larger than the {MAX_BYTES // 1024 ** 2} MB limit.")
     r = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
               "-of", "json", str(path)], timeout=120)
     if r.returncode != 0:
-        raise MediaError("Could not read this file - is it a valid audio/video recording?")
-    data = json.loads(r.stdout or b"{}")
+        raise CorruptMedia("This file could not be read - it looks corrupt or is not a real audio/video file.",
+                           detail=r.stderr.decode(errors="ignore")[-300:])
+    try:
+        data = json.loads(r.stdout or b"{}")
+    except json.JSONDecodeError as e:
+        raise CorruptMedia("This file could not be read (unparseable metadata).") from e
     streams = data.get("streams", [])
     v = next((s for s in streams if s.get("codec_type") == "video"), None)
     a = next((s for s in streams if s.get("codec_type") == "audio"), None)
     dur = float(data.get("format", {}).get("duration") or 0)
     if not a:
-        raise MediaError("This file has no audio track - a class recording needs audio to be assessed.")
-    if dur < 60:
-        raise MediaError(f"Recording is only {dur:.0f}s long - too short to assess a class.")
+        raise NoAudioTrack("This file has no audio track - a class recording needs audio to be assessed.")
+    if dur <= 0:
+        raise CorruptMedia("The recording has no readable duration - it may be truncated.")
+    if dur < MIN_DURATION_S:
+        raise MediaTooShort(f"Recording is only {dur:.0f}s long - too short to assess a class.")
+    if dur > MAX_DURATION_S:
+        raise MediaTooLong(f"Recording is {dur / 3600:.1f} h long; the limit is {MAX_DURATION_S / 3600:.0f} h.")
     return MediaInfo(dur, v is not None, True, v and v.get("width"), v and v.get("height"))
 
 
@@ -110,8 +153,16 @@ def extract_audio(path: str | Path, out_path: str | Path, start: float | None = 
     cmd += ["-vn", "-ac", "1", "-ar", "16000", "-b:a", bitrate, str(out_path)]
     r = _run(cmd)
     if r.returncode != 0 or not Path(out_path).exists():
-        raise MediaError("Audio extraction failed: " + r.stderr.decode(errors="ignore")[-300:])
+        raise CorruptMedia("Audio could not be extracted from this file.", detail=r.stderr.decode(errors="ignore")[-300:])
     return Path(out_path)
+
+
+def check_not_silent(sig: dict) -> None:
+    """Reject recordings whose audio is effectively silent (e.g. muted capture)."""
+    mx, mean = sig.get("max_volume_db"), sig.get("mean_volume_db")
+    if (mx is not None and mx < -45) or (mean is not None and mean < -65):
+        raise SilentAudio("The audio track is silent or almost silent (max level "
+                          f"{mx} dB). Check that the recording captured meeting audio.")
 
 
 def audio_signal_metrics(path: str | Path, noise_db: int = -35, min_silence: float = 8.0) -> dict:

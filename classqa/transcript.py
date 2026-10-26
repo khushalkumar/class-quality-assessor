@@ -156,3 +156,8 @@ def render(tr: Transcript, max_chars: int = 160_000) -> str:
         half = max_chars // 2
         out = out[:half] + "\n[... middle of transcript trimmed for length ...]\n" + out[-half:]
     return out
+
+
+def from_dict(d: dict) -> Transcript:
+    return Transcript([Segment(**s) for s in d["segments"]], d["source"], d.get("language", "unknown"),
+                      d.get("n_students", 0))
