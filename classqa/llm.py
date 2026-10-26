@@ -240,13 +240,16 @@ class LLMClient:
                     return obj, model
                 except ValidationError as ve:
                     last = ve
-                    obs.event(log, "schema_invalid", logging.WARNING, model=model, repaired=repaired, error=str(ve)[:200])
+                    # log only locations/types, never input values (they may contain transcript text)
+                    brief = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['type']}" for e in ve.errors()[:5])
+                    obs.event(log, "schema_invalid", logging.WARNING, model=model, repaired=repaired,
+                              n_errors=ve.error_count(), errors=brief)
                     if repaired:
                         raise SchemaError("The model returned malformed output twice; the job was stopped rather "
-                                          "than guessing.", detail=str(ve)[:500]) from ve
+                                          "than guessing.", detail=brief) from ve
                     repaired = True
                     msgs = [*contents, "Previous answer:\n" + raw.text[:20000],
-                            REPAIR_PROMPT.format(err=str(ve).splitlines()[0][:200])]
+                            REPAIR_PROMPT.format(err=brief[:300])]
                     continue
         if not tried_any:
             raise CircuitOpen("All Gemini models are temporarily paused after repeated failures. Try again in a few minutes.")

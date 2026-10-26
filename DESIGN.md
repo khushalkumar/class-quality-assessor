@@ -1,226 +1,245 @@
 # Design: 8x8 Class Quality Assessor
 
-*Status: prototype running in production-shaped form (Streamlit Community Cloud). Author: Khushal Kumar.*
+*Status: prototype running on Streamlit Community Cloud. This document covers the production path. Cost and
+throughput figures are **estimates** from tokens measured in our own runs and list prices. They are not quotes.*
 
 ## 1. Problem and goals
 
-8x8 teaches children chess on Zoom. Its academic team reviews recorded classes by hand: a reviewer watches the
-class, then writes a label (Excellent / Good / Average / Weak) and a few lines of feedback. That takes about one
-class-length of human time per class and doesn't scale to hundreds of classes a week.
+8x8 runs many small-group online chess classes for children. Today, reviewers watch recordings and write short
+feedback. We want a system that rates a class **Poor / Average / Good / Excellent** and explains the rating with
+evidence a reviewer can check in seconds.
 
 **Goals**
-1. Rate a recorded class **Poor / Average / Good / Excellent** and explain the rating with **specific, timestamped,
-   verifiable evidence** that a reviewer or teacher can act on.
-2. Be **trustworthy**: never present an uncertain result as certain. Route doubtful cases to a human.
-3. Be **operable at 8x8 scale**: hundreds of classes a week, predictable cost, explicit failures, resumable work,
-   and observable behaviour.
-4. **Protect children's data**: no media kept beyond the job, no names in outputs, one approved model vendor.
+- G1. Useful, checkable assessments. Every claim has a timestamp and a quote or frame reference, and coaching
+  tips are concrete.
+- G2. Labels that match 8x8's own bar. The rubric is derived from 8x8 reviewer feedback and calibrated on labelled
+  classes.
+- G3. Trust over false certainty. Uncertain results go to a human review queue and are not presented as final.
+- G4. Reliable and cheap at hundreds to thousands of classes a week. Failures are explicit, retries are cheap and
+  idempotent, and cost per class is bounded.
+- G5. Privacy by default. Recordings of minors are processed only by the approved model vendor and are deleted
+  after the job.
 
-**Non-goals (for this version)**
-- Replacing reviewers. The system triages and drafts; humans decide on borderline cases and on anything that
-  affects a teacher's pay or employment.
-- Live, in-class feedback. This is batch/offline only.
-- Training a custom model. With 10 labelled classes that would overfit; a prompted multimodal model plus a
-  calibrated, code-computed label is the right tool at this data size.
+**Non-goals (for now)**
+- Replacing human reviewers. The system triages and drafts; humans decide on edge cases.
+- Real-time or in-class feedback.
+- Training a custom model. With 10 labelled classes, a prompted multimodal model plus a calibrated aggregation
+  is the right size of tool.
+- Teacher-facing performance management. Outputs are coaching aids until validated on far more data.
 
 ## 2. Architecture
 
 ```mermaid
-flowchart TB
-  subgraph Client
-    UI[Streamlit UI<br/>submit + poll + report]
-    OPS[Ops page<br/>status, failures, cost]
-    CLI[CLI / batch<br/>folder or link list]
+flowchart LR
+  subgraph UI["Streamlit UI (app.py, pages/1_Ops.py)"]
+    U1[Link / Upload / .vtt] --> U2[submit job]
+    U3[poll status every 2 s] --> U4[report card / review banner / error + retry]
   end
   subgraph Core["Processing core (classqa/)"]
-    Q[(Job queue)]
-    W[Worker thread(s)]
-    P[Staged pipeline]
-    LLM[LLM client<br/>backoff+jitter, fallback chain,<br/>circuit breaker, schema repair,<br/>budget + daily quota guard]
-    T[Trust layer<br/>quote verification,<br/>self-consistency, review routing]
+    Q[(job queue)] --> W[worker thread]
+    W --> S1[download - stream to disk, resume]
+    S1 --> S2[validate - ffprobe, limits, audio]
+    S2 --> S3[signals - silence/loudness, blank frames]
+    S3 --> S4[transcript - VTT or Gemini, 20-min chunks]
+    S4 --> S5[metrics]
+    S5 --> S6[media - frames, speaker crops, audio excerpts]
+    S6 --> S7[score - Gemini x n runs]
+    S7 --> S8[finalize - quote check, label, review routing]
   end
-  subgraph Storage
-    DB[(SQLite: jobs, checkpoints, quota)]
-    TMP[/per-job temp dir<br/>deleted after each attempt/]
-  end
-  G[Gemini API]
-  UI -->|submit| Q
-  CLI -->|submit| Q
-  Q --> W --> P
-  P <--> DB
-  P <--> TMP
-  P --> LLM --> G
-  P --> T
-  UI -->|poll| DB
-  OPS --> DB
+  CLI[CLI / batch] --> Q
+  U2 --> Q
+  W <--> DB[(SQLite: jobs, checkpoints, quota)]
+  S4 & S7 <--> G[Gemini API via LLMClient: backoff, fallback, circuit breaker, budget]
+  U3 --> DB
+  OPS[Ops page] --> DB
 ```
 
-The **UI is a thin client**. `app.py` submits a job and polls its status with an auto-refreshing fragment. All
-processing lives in `classqa/` and runs in a **background worker thread**. The CLI drives the same worker, so bulk
-runs and the app share one code path, one set of guards and one set of checkpoints.
+- **UI is presentation only.** `app.py` submits a job and polls the job row. Rendering lives in
+  `ui/report_view.py`. All processing is in `classqa/`, so the same core serves the CLI, batch runs, the eval
+  harness and tests.
+- **Job model** (`classqa/store.py`): `queued → extracting → transcribing → scoring → done | needs_review | failed`.
+  Every job stores its progress, a user-facing error code and message, usage (calls, tokens, estimated cost,
+  per-stage seconds), review reasons, and the full versioned result.
+- **Worker** (`classqa/worker.py`): a background thread pulls job ids from a queue and runs `pipeline.run(ctx)`.
+  The `finally` block always deletes the job's media directory and any Gemini Files uploads.
+- **Idempotent checkpoints.** The key is `(sha256 of input file + transcript, stage, version)`. Transcription
+  chunks and every scoring run are checkpointed, so a retry resumes from the last finished stage and re-running
+  the same recording costs $0. The version key includes the prompt version, rubric hash, model and number of
+  frames/excerpts, so any change to the inputs invalidates the cache correctly.
+- **Swappable persistence.** `JobStore`, `CheckpointStore` and `QuotaStore` are small protocols. SQLite (WAL,
+  thread-safe) is the prototype backend.
 
-### Job state machine
+### Production mapping
 
-`queued → extracting → transcribing → scoring → done | needs_review | failed`
+| Prototype | Production |
+|---|---|
+| SQLite `jobs` | Postgres (jobs and results; JSONB for reports), with row-level access for reviewers |
+| SQLite `checkpoints` | Postgres for small JSON; object storage (GCS/S3) for transcripts, with a **7-day lifecycle TTL** |
+| SQLite `quota` | Redis `INCR` with expiry (per model, per day) and a token-bucket RPM limiter shared across workers |
+| in-process queue + thread | Cloud Tasks / Pub/Sub (or Celery + Redis) feeding autoscaled Cloud Run jobs. Same `JobRunner.process()` body |
+| per-job temp dir | ephemeral worker disk. Media fetched from a signed URL and never persisted beyond the attempt |
+| Streamlit Ops page | Grafana/Looker on the JSON logs + jobs table; alerting on failure rate, review rate, cost/class |
 
-- `needs_review` is a **successful** result that a human should confirm (reasons are stored with the job).
-- `failed` always carries a stable `error_code` (for dashboards) and a plain-language `error_message` (for users).
-- If a job is left non-terminal because the process restarted, it is marked failed (`worker_restarted`) on the next
-  start. A retry resumes from the checkpoints.
+## 3. Data flow (one class)
 
-### Stages and checkpoints (data flow)
+1. **Ingest.** A link is streamed to disk in 1 MB chunks (never held in memory). The download enforces the size
+   limit, reports progress, and resumes with HTTP `Range` after a dropped connection. Drive links use the
+   `usercontent` endpoint with `confirm=t` (it skips the large-file warning page), with `gdown` as a fallback.
+   Browser uploads go to the job dir in 8 MB chunks.
+2. **Validate before spending.** ffprobe checks format, corruption, duration (1 min to 3 h), size (≤ 2 GB) and
+   that an audio track exists. ffmpeg loudness rejects silent recordings. No API call happens until all of this
+   passes.
+3. **Transcript.** If a Zoom `.vtt` is provided and usable, it is used. Otherwise Gemini (flash-lite) transcribes
+   mono 16 kHz 32 kbps audio in 20-minute chunks, three in parallel, with speaker roles. Display names become
+   `Teacher` / `Student N` before anything is sent for scoring.
+4. **Signals.** Interaction metrics are computed in code. Twelve frames plus upscaled top-right speaker crops
+   cover background, face and camera. Four 90-second audio excerpts cover tone, energy and audio quality. If
+   frames or excerpts fail, the job continues and records `missing_signals`.
+5. **Score.** One (or n, for self-consistency) Gemini call per run. The response is validated against a Pydantic
+   schema. It contains a visual check, concerns listed first, six dimension scores with evidence, strengths,
+   improvements with coaching tips, severity-tagged red flags, a holistic label and a confidence.
+6. **Finalize (deterministic).**
+   - Every evidence quote is verified against the full transcript (exact or ≥ 0.8 fuzzy match). Quotes that
+     can't be found are removed and flagged.
+   - The label comes from fixed weights and thresholds. A major red flag caps the label at Average.
+   - Confidence is downgraded when signals are missing or runs disagree.
+   - Routing rules decide `done` vs `needs_review`.
+7. **Result.** The report is stored with `versions` (pipeline, prompt, rubric hash, thresholds), the model used,
+   and usage and cost, so any rating can be audited and reproduced later.
 
-| Stage | Status | Input → output | Checkpointed |
-|---|---|---|---|
-| download | extracting | link → file streamed to the job dir (1 MB chunks, size cap, HTTP Range resume) | – |
-| validate | extracting | file → ffprobe facts; rejects bad input **before any API spend** | – |
-| signals | extracting | ffmpeg silence/loudness + blank-frame stats; silent audio rejected | yes |
-| transcript | transcribing | Zoom `.vtt` or Gemini transcription in 20-min chunks (parallel ×3) | **per chunk** |
-| metrics | scoring | transcript → talk-time, questions, turns, monologues, silences, praise, homework, A/V complaints | – (cheap) |
-| media | scoring | 12 frames + top-right speaker crops, 4×90 s audio excerpts (optional; degrade if they fail) | – (local, cheap) |
-| score | scoring | everything above → `n` rubric runs (structured JSON) | **per run** |
-| finalize | done / needs_review | quote verification, merge runs, deterministic label, review reasons | – |
+## 4. Key decisions and trade-offs
 
-The checkpoint key is **(sha256 of the input bytes + transcript, stage, version)**. The version includes the
-prompt version, the rubric hash, the model and the number of frames and excerpts. Consequences:
-- a **retry resumes** from the last finished stage (tested: a scoring failure followed by a retry re-uses the
-  transcript and makes zero transcription calls);
-- **re-submitting the same recording costs nothing**;
-- changing the prompt or rubric automatically invalidates only the stages it affects.
-- Checkpoints hold derived data only: pseudonymised transcript JSON, metrics, model output. They are purged after
-  a TTL (default 7 days).
+| Decision | Alternatives considered | Why this one / trade-off |
+|---|---|---|
+| **Gemini multimodal (audio + frames + transcript)** | Transcript-only LLM; Whisper + separate vision model; training a classifier | 8x8 feedback is about background, face, camera, energy and A/V quality as much as content. Transcript-only scoring rated "quality issue" classes Good/Excellent (eval v2). One vendor keeps the data-processing agreement simple. Trade-off: vendor dependence and free-tier quotas, mitigated by the fallback chain and model config via env. |
+| **Rubric derived from 8x8 feedback** | Generic teaching rubrics (e.g. CLASS, Danielson) | Labels are 8x8's, so the rubric must encode 8x8's bar: rapport/intro, energy, setup, homework. Weights follow how often a theme decides a label in the feedback. Trade-off: built from 10 examples, so it needs re-validation as more labelled data arrives. |
+| **LLM scores, code decides the label** | Ask the LLM for the label directly | Code-side aggregation is auditable, versioned, stable across runs, and can be recalibrated without new API calls (`eval/rescore.py`). The model's own holistic label is kept as a disagreement signal. Trade-off: thresholds are fitted on little data (leave-one-out reported). |
+| **Human review queue (`needs_review`)** | Always output a label; refuse when unsure | A wrong confident label costs more than a 2-minute human check. The model gives scores for review instead of refusing, and reviewers see *why* a class was routed. Trade-off: 6/10 eval classes would be routed today. The margin is configurable so routing can match reviewer capacity. |
+| **Quote verification in code** | Trust the model; ask the model to self-check | Hallucinated evidence would destroy reviewer trust. String matching is cheap and deterministic. On saved eval outputs, 141/144 quotes verified (3 removed). |
+| **Flash-lite models by default** | gemini-3-flash / 3.6-flash / 3.1-pro | Best *complete* eval run (5/10 exact, 9/10 within one) and a usable quota. The larger flash models share a ~20 requests/day free-tier pool and returned many 429/503s. Trade-off: flash-lite compresses scores, and a better model on a paid tier is worth re-evaluating (roadmap). |
+| **Idempotent checkpoints by content hash** | Retry whole jobs; no caching | A retry after a 503 at the scoring stage should not re-pay for transcription. Re-submitting the same file is free. Trade-off: transcripts at rest, limited by pseudonymisation plus a TTL. |
+| **Link path recommended for big files** | Browser upload only | Streamlit holds uploads in memory and proxied uploads can stall (seen live with a 54 MB file). Server-side streaming with resume is robust and scales to 2 GB. |
+| **Thread worker inside Streamlit** | Separate worker service | Streamlit Cloud is a single container. A daemon thread plus SQLite works there and keeps the UI responsive. The same `process()` moves unchanged into a queue worker in production. |
+| **Deterministic settings** | temperature 0 | A fixed `seed` plus vendor-default temperature (Gemini 3 guidance warns against low temperatures). Variance is handled explicitly with optional self-consistency (n=2) and disagreement routing. |
 
-## 3. Key decisions and trade-offs
+## 5. Failure modes
 
-| Decision | Alternatives considered | Why this one | Cost of the choice |
-|---|---|---|---|
-| **Gemini multimodal** (audio + frames + transcript in one call) | transcript-only LLM; Whisper + GPT; custom classifier | 8x8's feedback is largely visual and tonal (branded background, face visible, "energetic and pleasant"). Transcript-only scoring rated the "quality issue" classes Good/Excellent (eval v2). One vendor handles audio, images and text, which is also simpler for privacy approval. | Vendor lock-in (the transport is behind a `Backend` interface); free-tier quotas are tiny. |
-| **Rubric derived from 8x8's feedback**, weighted by how often a theme decides a label | generic teaching rubric (e.g. CLASS); let the model decide freely | Aligns with what this client actually rewards. Example: "asks each child individually" appears even in weak classes, so it carries less weight. | Small sample; weights need re-checking as labelled data grows. |
-| **Code computes the label** from the per-dimension scores (fixed weights and thresholds, red-flag cap) | ask the model for the label | Auditable, stable, tunable without re-prompting. The model's holistic label is kept as a cross-check and its disagreement lowers confidence. | Thresholds must be calibrated, and are now calibrated on 10 classes (leave-one-out reported). |
-| **Human review queue** (`needs_review`) | always output a label; refuse when unsure | A wrong confident label harms teachers and erodes trust. A flagged label still saves most of the reviewer's time, because the evidence is pre-assembled. | Some reviewer load. Routing sent 6/10 eval classes to review; the margin is configurable to match reviewer capacity. |
-| **Quote verification** against the transcript | trust the model | Hallucinated evidence is the fastest way to lose reviewer trust; checking quotes is cheap and deterministic. | Paraphrases count as "approximate", and audio-only claims can't be verified textually (they're labelled). |
-| **Cheap model for both stages** (`gemini-3.5-flash-lite` scoring, `gemini-3.1-flash-lite-preview` transcription) | larger flash or pro models | Best *complete* eval run, roughly 10× cheaper, and usable quota. Bigger models hit the 20 requests/day free-tier pool mid-eval. | Compressed score range; the fallback chain includes bigger models. |
-| **SQLite + in-process worker** | Postgres + Redis + Cloud Run now | Runs on Streamlit Cloud's single container. Interfaces (`JobStore`, `CheckpointStore`, `QuotaStore`, `Backend`) make the swap mechanical. | One container = one worker pool, and data is lost if the container is recycled (jobs fail explicitly). |
-| **Link-first input** for big files | browser upload only | Browser uploads of long recordings stall on proxied or slow connections (seen live: a 54 MB upload never finished). Server-side streaming download has progress, a size cap and resume. | Users must share the Drive file publicly ("anyone with the link"). |
+Every failure ends in a terminal state with a stable `error_code` (shown on the Ops page) and a plain-language
+message. "Tested" refers to `tests/` (fakes and synthetic media, no API calls).
 
-## 4. Failure modes
+| Failure | Detection | Handling | What the user sees | Tested |
+|---|---|---|---|---|
+| Unsupported / non-media file | extension + ffprobe | reject before API spend | "Unsupported file type…" | ✅ |
+| Corrupt / truncated media | ffprobe error, no duration | reject | "File looks corrupt…" (`corrupt_media`) | ✅ |
+| Too short / too long / too large | duration < 60 s / > 3 h; size > 2 GB (also enforced *while* downloading) | reject; download aborted early | limit stated | ✅ |
+| No audio track | ffprobe streams | reject | `no_audio` | ✅ |
+| Silent audio (muted capture) | ffmpeg volumedetect (max < −45 dB) | reject | `silent_audio` | ✅ |
+| No video track (audio file) | ffprobe | continue without visual checks; confidence capped; routed to review | "Assessed without video frames" | ✅ |
+| Frames / excerpts extraction fails | exception in media stage | continue, `missing_signals` recorded | info banner and review reason | ✅ (audio-only path) |
+| **Large browser upload stalls** | upload never completes (Streamlit holds uploads in memory; proxies time out) | `maxUploadSize=400`; UI recommends the **Link** tab above ~200 MB; uploads streamed to disk in 8 MB chunks | guidance under the uploader; Link tab is the default tab | manual (live) |
+| Drive file not shared / 401/403/404 | HTML sign-in page or HTTP status; gdown "permission" | stop, no retry | "Share as *Anyone with the link*" (`drive_permission`) | ✅ |
+| Drive download quota / HTTP 429 | gdown "too many users" / 429 | stop with advice | `drive_quota` | ✅ |
+| Dropped connection mid-download | exception during stream | resume with HTTP Range (3 retries, backoff) | progress continues | ✅ |
+| Folder link / web page instead of file | URL pattern / `text/html` | reject | "Share the file, not the folder" | ✅ |
+| Gemini 429 (per-minute) / 503 / timeout / disconnect | error classification | exponential backoff with full jitter (cap 60 s), up to 5 attempts | progress message "model busy, retrying" | ✅ |
+| Gemini daily quota exhausted for a model | 429 "per day" | breaker opened hard for that model; next model in the chain | transparent; model used shown in the report | ✅ |
+| Repeated failures on a model | circuit breaker (5 consecutive) | model paused for 2 min; fallback chain; all open → `circuit_open` | "AI paused briefly, retry in a few minutes" | ✅ |
+| All models unavailable | chain exhausted | job `failed` (`llm_unavailable`); retry reuses checkpoints | Retry button (link jobs) | ✅ |
+| Invalid API key | 400/401/403 auth | fail fast, no retries | `llm_auth` | ✅ |
+| Malformed / out-of-schema JSON | Pydantic validation | one repair retry with the validation error; then `malformed_output` | structured failure, no guessed result | ✅ |
+| Hallucinated evidence quote | quote not found in transcript | quote removed and marked; > ⅓ unverified → review | "⚠️ not in transcript" badge | ✅ |
+| Low confidence / holistic vs rubric ≥ 2 levels / borderline score / self-consistency disagreement / major red flag | trust layer rules | `needs_review` with reasons | yellow banner listing reasons | ✅ |
+| Runaway cost (very long file, loops) | per-job token (2 M) and cost ($0.50) budget | stop the job | `budget_exceeded` | ✅ |
+| Daily spend / quota | global daily request guard (400/day default) | new calls refused | `daily_quota` | ✅ |
+| App restart mid-job | stale non-terminal jobs on startup | marked `worker_restarted`; media deleted; retry resumes from checkpoints | message + retry | ✅ (logic) |
+| Unexpected exception | catch-all in worker | `internal_error`; traceback in JSON logs only | generic message | ✅ |
 
-Every row is covered by a unit test in `tests/` (fakes, no API calls) unless marked *(manual)*.
+## 6. Reliability of the rating
 
-| Failure | Detection | Handling | What the user sees |
-|---|---|---|---|
-| Unsupported file type / Drive folder link / HTML page instead of a file | extension check, URL pattern, `content-type` | reject before download/API | "Unsupported file type…" / "That is a folder link — share the file" |
-| Corrupt or truncated media | ffprobe non-zero / unparseable / zero duration | `failed: corrupt_media`, no API spend | "This file could not be read — it looks corrupt" |
-| Too large / too long / too short | size cap (2 GB, checked again while streaming), duration limits (60 s – 3 h) | reject early | exact limit in the message |
-| No audio track | ffprobe streams | `failed: no_audio` | "This file has no audio track" |
-| Silent audio (muted capture) | ffmpeg volumedetect (max < −45 dB) | `failed: silent_audio` | "The audio track is silent…" |
-| No video track (audio-only) | ffprobe | **degrade**: score without visuals, `missing_signals` recorded, confidence capped, → `needs_review` | blue info box: "Assessed without video frames" |
-| Frames or excerpts fail to extract | exception in the media stage | degrade as above | same |
-| Large browser upload stalls *(manual, seen live)* | upload never completes | UI recommends the Link path; `maxUploadSize` 500 MB; guidance under the uploader | "Uploads above ~200 MB can stall — use the Link tab" |
-| Drive file not shared | HTTP 401/403/404, HTML sign-in page, gdown "cannot retrieve public link" | `failed: drive_permission` (not retried) | how to set "Anyone with the link" |
-| Drive download quota ("too many users") / HTTP 429 | gdown message / status | `failed: drive_quota` (retryable) | "Try later or upload a copy" |
-| Dropped connection mid-download | exception while streaming | resume with HTTP Range (3 retries, backoff) | progress continues |
-| Gemini 429 per-minute, 503, timeouts, disconnects | error classification | exponential backoff with **full jitter** (capped), then next model | progress message "model busy, retrying" |
-| Gemini daily quota exhausted | 429 "per day" | model's breaker opened for hours; fall back to next model | transparent; if all exhausted → `failed: llm_unavailable` + retry hint |
-| Repeated failures on one model | per-model **circuit breaker** (5 consecutive → open 120 s) | skip that model; all open → `failed: circuit_open` | "AI requests paused briefly, retry in a few minutes" |
-| Invalid API key | 400/401/403 "API key not valid" | fail fast, no retries (`llm_auth`) | "Check the GEMINI_API_KEY secret" |
-| Malformed JSON / schema violation (e.g. score 9) | Pydantic validation against the response schema | **one repair retry** with the error, then `failed: malformed_output` | "The model returned malformed output twice; stopped rather than guessing" |
-| Hallucinated evidence quote | quote not found (exact or ≥0.8 fuzzy) in the transcript | quote removed and flagged; >⅓ unverified → `needs_review` | "⚠️ not in transcript" badge, evidence-check summary |
-| Low confidence, holistic vs rubric gap ≥2, score within 0.05 of a threshold, self-consistency disagreement, major red flag | `quality.review_reasons` | `needs_review` with the reasons listed | yellow "Needs human review" banner listing the reasons |
-| Runaway cost on one job | per-job token/USD budget (default 2M tokens / $0.50) | `failed: budget_exceeded` | message with tokens and cost |
-| Team-wide quota exhaustion | daily request counter (SQLite; Redis in prod) | `failed: daily_quota` before calling | "Daily limit reached; retry after reset" |
-| Process restart mid-job | non-terminal job older than 15 min at startup | `failed: worker_restarted`; retry resumes from checkpoints | retry button (link jobs) |
-| Unexpected bug | catch-all in the worker | `failed: internal_error`, traceback in the JSON logs; media still deleted | generic message, nothing leaks |
+- **Versioning.** Every result stores `pipeline`, `prompt` (`v4`), a `rubric` content hash and the thresholds,
+  plus the model that answered. Changing any of these invalidates checkpoints and is visible in the report and
+  in audits.
+- **Self-consistency (optional, n=2).** Dimension scores are averaged; if the two runs land on different labels,
+  confidence goes to Low and the job is routed to review. It is off by default because it doubles scoring cost.
+- **Deterministic aggregation.** The same scores always give the same label. `eval/rescore.py` re-applies
+  aggregation to stored outputs.
 
-## 5. Reliability of the rating
+## 7. Observability
 
-- **Self-consistency (optional, n=2):** both runs are scored independently and their dimension scores averaged. If
-  the runs disagree by one level or more, confidence is set to Low and the job goes to `needs_review`. It's off by
-  default because it doubles scoring cost; recommended for anything that feeds HR decisions.
-- **Deterministic settings:** fixed seed (`CLASSQA_SEED`). Temperature is left at the vendor default because
-  Gemini 3 guidance warns that low temperatures can cause looping; it's configurable. The label itself comes from
-  code, so model variance only moves the dimension scores.
-- **Versioning for audit:** every result stores the pipeline version, prompt version (`v4`), rubric hash (weights,
-  anchors, thresholds, cap), the models that answered, and the job's token usage. A rating can always be traced to
-  the exact logic that produced it.
-
-## 6. Observability
-
-- **Structured JSON logs** (`classqa.obs`). Every line carries `job_id`. Events: `stage_start`/`stage_end` (with
-  seconds), `llm_call` (model, schema, latency, tokens, estimated cost), `llm_error` (classified kind, attempt),
-  `circuit_open`, `schema_invalid`, `checkpoint_hit`, `job_finished`/`job_failed`, `media_deleted`.
-- **Per-job usage** stored with the result: calls, failed calls, tokens in/out, estimated USD, per-model breakdown,
-  per-stage seconds.
-- **Ops page** (`pages/1_Ops.py`): jobs by status, failure reasons by code, average cost/time/tokens per class,
-  requests today vs the daily guard, circuit-breaker state, recent jobs table, and per-stage latency.
-
-## 7. Privacy
-
-- Media lives only in a per-job temp folder. It's deleted when the attempt ends, on success **or** failure
-  (tested). Uploads are written there directly; link downloads are streamed there, never held in memory.
-  Files a caller owns (CLI paths) are read in place and never modified.
-- Media goes to the Gemini API inline by default. Anything above 15 MB uses the Files API and is **deleted
-  explicitly** after the job (Gemini also expires files after 48 h).
-- Zoom display names (and their occurrences in the text) are replaced with `Teacher` / `Student N` before the
-  transcript leaves the transcript stage. The model is instructed never to output names. Names spoken aloud can
-  still appear in transcripts, so checkpoints are TTL-purged (7 days) and live outside the repo.
-- Nothing from the dataset (recordings, transcripts, feedback, names) is in git; CI and tests use synthetic media.
-- **Vendor approval:** the brief asks that recordings be processed only with services the organiser permits.
-  Gemini must be confirmed with Humaniti/8x8 before real use. In production that means a paid Gemini API or
-  Vertex AI project with data-use terms that exclude training on customer data, and a region chosen to match
-  8x8's data-residency needs.
+- Structured JSON logs (`classqa/obs.py`) carry `job_id` on every line: `stage_start/stage_end` (seconds),
+  `llm_call` (model, tokens, estimated cost, latency), `llm_error` (kind, attempt), `circuit_open`,
+  `checkpoint_hit`, `job_finished/failed`, `media_deleted`. Context variables are propagated into the
+  transcription thread pool.
+- The **Ops page** shows jobs by status, failure reasons, review rate, average cost/time/tokens per class,
+  requests today vs the guard, circuit-breaker state, and per-stage latency.
+- Production alerts: failure rate > 5 % per hour, review rate drift, cost per class over budget, p95 latency.
 
 ## 8. Scaling and cost (estimates)
 
-Measured on the real end-to-end job (38-min class, public Drive link, no `.vtt`) through the job path: 3
-successful Gemini calls (2 transcription chunks + 1 scoring) plus 5 failed 503s handled by backoff/fallback,
-**~101k input + ~17k output tokens, 122 s wall time**. Breakdown: download 5 s, signals 12 s, transcription 64 s,
-media 7 s, scoring 34 s. Eval runs (`.vtt` path) used ~45–60k input tokens per scoring call.
+Measured:
+- End-to-end job via a Drive link on a 38-minute class, without a transcript: 3 successful calls (plus 5
+  transient 503s, retried), 100.7 k input / 16.9 k output tokens, 122 s wall time.
+- Eval scoring calls: about 45 k input / 4.6 k output tokens each.
 
-| Item | Per class (60 min, est.) | Per 1,000 classes (est.) |
-|---|---|---|
-| Tokens (transcription 3 chunks + 1 scoring) | ~150k in / ~25k out | ~150M in / ~25M out |
-| Cost, flash-lite models (≈$0.10 / $0.40 per 1M) | **~$0.025** | **~$25** |
-| Cost, same with self-consistency n=2 | ~$0.035 | ~$35 |
-| Cost, larger flash model for scoring (≈$0.50 / $3.00) | ~$0.10 | ~$100 |
-| Wall time, one worker | ~3 min | ~50 h serial → ~5 h with 10 workers |
-| Gemini requests | ~4 | ~4,000 (needs paid-tier rate limits) |
+| Scenario (per 60-min class) | Calls | Tokens in / out | Est. cost (flash-lite list price $0.10 / $0.40 per M) | Est. cost on a flash-class model ($0.50 / $3.00) |
+|---|---|---|---|---|
+| With Zoom `.vtt` | 1 | ~45 k / ~5 k | ~$0.007 | ~$0.04 |
+| Gemini transcription | 4 | ~135 k / ~23 k | ~$0.02 | ~$0.14 |
+| + self-consistency (n=2) | 5 | ~180 k / ~28 k | ~$0.03 | ~$0.17 |
 
-*Prices are list-price assumptions in `classqa/obs.py`; check current pricing. The ops page reports the running
-average from real jobs.*
+- **Per 1,000 classes**: about **$7–30** on flash-lite, or **$40–170** on a flash-class model, plus compute
+  (ffmpeg, about 30 s CPU per class).
+- **Throughput.** One worker does about 25–30 classes per hour, bounded by model latency. 1,000 classes a week is
+  about 35–40 worker-hours, so 4 parallel workers clear a week's backlog in a working day. The real limit is the
+  vendor RPM/TPM quota, not compute: a paid tier and a shared Redis rate limiter are prerequisites for scale.
+- **Cost controls.** Per-job budget, daily guard, checkpoint reuse (re-runs are free), the `.vtt` path when
+  available (about 3× cheaper), and self-consistency only on borderline cases (roadmap).
 
-**Path to production scale** (interfaces already in place):
-- `JobStore` → **Postgres** (jobs, results, review decisions); `CheckpointStore` → Postgres + **object storage**
-  (GCS/S3) with a lifecycle rule for the TTL; `QuotaStore` → **Redis** `INCR` with expiry, shared by all workers.
-- Queue → **Cloud Tasks / Pub/Sub** (or Celery + Redis). `JobRunner.process(job_id)` is already the task body.
-  Workers on **Cloud Run jobs**, autoscaled on queue depth. Concurrency is capped per model to respect RPM/TPM.
-- Media: signed-URL uploads straight to object storage (bypassing the web tier), so the 54 MB-upload problem goes
-  away. Workers stream from the bucket. Bucket lifecycle deletes media after 24 h.
-- Ingest: a Zoom cloud-recording webhook creates a job per finished class, using Zoom's own transcript when
-  available (cheaper, better speaker labels).
-- Review: a reviewer queue for `needs_review` jobs. Reviewer decisions are stored and become new labelled data
-  for re-calibrating thresholds every month.
+## 9. Privacy and compliance
 
-## 9. Evaluation and its limits
+- **Media lifetime.**
+  - Uploads and downloads live only in `jobs/<id>/` and are deleted in the worker's `finally` on success *and*
+    failure.
+  - Audio is sent inline. Clips over 15 MB would go through the Gemini Files API and are deleted right after the
+    job; Gemini also auto-expires files after 48 h.
+  - Nothing is written outside the job dir except checkpoints.
+- **Checkpoints and PII.**
+  - Checkpoints hold pseudonymised transcripts and model JSON. Zoom display names, and their occurrences in the
+    text, are replaced with `Teacher` / `Student N`.
+  - Names spoken aloud may remain in Gemini transcripts. The scoring model is instructed never to output names.
+  - Checkpoints are purged after 7 days (`CLASSQA_CHECKPOINT_TTL_S`).
+  - Logs never contain transcript text.
+- **Repository.** No recordings, transcripts, feedback PDFs, keys or tokens. `.gitignore` covers media, `.vtt`,
+  `.cache/`, `eval/runs/` and secrets. CI runs with no key.
+- **Vendor approval.** The brief says recordings may be processed only with services the organiser permits. Before
+  production use with real children's data, **8x8/Humaniti must approve Google Gemini as a processor**: a data
+  processing agreement, data residency, a paid tier (free-tier data may be used to improve Google products), and
+  retention settings. Until then the hosted demo should be used only with recordings the organiser has cleared.
 
-Details in `eval/EVALUATION.md`. Final configuration on the 10 labelled classes: **7/10 exact, 9/10 within one
-level** (leave-one-out threshold fit: 5/10 exact). Both "known quality issue" classes are rated Poor, caught by the
-media checks rather than the transcript. Trust layer on the same outputs (offline, no API calls): 141/144 textual
-quotes verified in the transcript (3 removed); 6/10 classes routed to review, catching 2 of the 3 misclassified,
-and 3 of the 4 auto-accepted classes were correct.
+## 10. Evaluation and its limits
 
-Limits: 2 labelled classes per label, thresholds tuned on the same data, run-to-run variance about ±0.4 on the
-weighted score, the visual background check is unstable on at least one class, and Gemini transcripts merge short
-replies (so turn counts differ from Zoom's).
+See `eval/EVALUATION.md`.
+- **Final setup:** 7/10 exact and 9/10 within one level in-sample. With leave-one-out thresholds it is 5/10 exact.
+- **Quality-issue classes:** both are rated Poor once media signals are used.
+- **Trust layer, offline on saved outputs:** 141/144 quotes verified; 6/10 classes routed to review, catching
+  2 of the 3 misclassified; 3/4 auto-accepted classes correct.
+- **Limits:**
+  - Only 10 labelled classes, 2 per label.
+  - Thresholds are fitted on the same data.
+  - Run-to-run variance is about ±0.4 on the weighted score.
+  - The background check is not yet stable (QI-1 in full mode).
 
-## 10. Roadmap
+## 11. Roadmap
 
-1. **Dedicated visual check:** a narrow prompt (or 8x8-logo template matching) for background, face and camera,
-   the biggest remaining error source.
-2. **More labelled data from the review queue:** recalibrate weights and thresholds; report a confusion matrix
-   and inter-rater agreement against human reviewers, not just against labels.
-3. **Use Zoom metadata** (participant join/leave times, camera state) instead of inferring it from pixels.
-4. **Production infrastructure** as in §8, with signed-URL uploads and webhook ingest.
-5. **Per-teacher trends:** rating over time, recurring coaching themes, and alerts on repeated red flags.
-6. **Prompt/model A/B harness:** run candidate prompts on the labelled set in CI (nightly, paid key) and block a
-   prompt change that lowers accuracy.
+1. **More labelled data.** 50–100 classes with reviewer labels. Re-fit thresholds and weights with
+   cross-validation and track agreement (Cohen's κ) against human reviewers.
+2. **Dedicated visual checks.** 8x8-logo template matching and face detection on the speaker crop, so the
+   background/face check is deterministic instead of LLM-judged.
+3. **Selective self-consistency.** Run the second scoring pass only for borderline classes, at about +15 % cost
+   instead of +100 %.
+4. **Paid tier and model bake-off.** Rerun the eval on larger models with full quota and pick per stage on
+   accuracy per dollar.
+5. **Reviewer loop.** Reviewers accept or override in the UI, and overrides become labelled data and calibration
+   drift alerts.
+6. **Production deployment.** Postgres, object storage with TTL, Cloud Tasks with Cloud Run workers, a Redis
+   rate limiter, SSO for reviewers, and an audit log.
