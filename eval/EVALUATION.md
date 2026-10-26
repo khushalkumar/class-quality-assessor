@@ -128,6 +128,60 @@ margin 0.05):
   non-verbal observations (no quote to check). So about 2% of model quotes would have been fabricated or garbled
   without this check.
 
+## Trust layer (added in the production-design refactor; no new API calls)
+
+The label logic is unchanged, so the numbers above still hold. Two new layers sit on top, and both were measured
+offline on the saved v4-l35 outputs with `eval/review_analysis.py`:
+
+- **Quote verification.** 135 exact + 6 near-verbatim matches out of 144 verbal quotes. **3 quotes were not found
+  in the transcript and are now removed and flagged**; 31 observations are visual/audio.
+- **Review routing.** A class goes to review when confidence is Low, the rubric and holistic labels are ≥ 2 levels
+  apart, the score is within 0.05 of a threshold, self-consistency runs disagree, more than ⅓ of quotes are
+  unverified, a signal is missing, or a major red flag is raised.
+
+| id | actual | pred | needs review | unverified quotes | reasons |
+|---|---|---|---|---|---|
+| EX-1 | Excellent | Excellent | yes | 0 | Rubric score (Excellent) and the model's holistic view (Average) differ by 2 levels. |
+| EX-2 | Excellent | Excellent | yes | 0 | Rubric score (Excellent) and the model's holistic view (Average) differ by 2 levels.; Score 3.45 is within 0.00 of a rating boundary. |
+| GO-1 | Good | Poor | yes | 0 | A major red flag was raised - please confirm it. |
+| GO-2 | Good | Good | no | 1 |  |
+| AV-1 | Average | Average | yes | 0 | Score 2.75 is within 0.00 of a rating boundary. |
+| AV-2 | Average | Poor | yes | 1 | A major red flag was raised - please confirm it. |
+| PO-1 | Poor | Poor | no | 0 |  |
+| PO-2 | Poor | Average | no | 0 |  |
+| QI-1 | Poor | Poor | no | 0 |  |
+| QI-2 | Poor | Poor | yes | 0 | A major red flag was raised - please confirm it. |
+| DE-1 | demo | Poor | yes | 0 | A major red flag was raised - please confirm it. |
+| DE-2 | demo | Excellent | yes | 1 | Rubric score (Excellent) and the model's holistic view (Average) differ by 2 levels. |
+
+**6/10 routed to review. 2 of the 3 misclassified classes are routed (GO-1, AV-2). Of the 4 auto-accepted
+classes, 3 are correct (PO-2, rated Average instead of Poor, slips through).** The borderline margin (0.05) is a
+routing policy chosen on this data: at 0.10, 8/10 would be routed. It is configurable
+(`CLASSQA_BORDERLINE_MARGIN`) so the review rate can match reviewer capacity.
+
+## End-to-end through the job system (production-design refactor)
+
+One real job ran through the new link path: `python -m classqa.cli assess <Drive link>` on the smallest sample
+(AV-1, 38 min, 54 MB), without a transcript.
+
+| stage | seconds |
+|---|---|
+| download (Drive, streamed) | 5.2 |
+| validate | 0.1 |
+| signals (ffmpeg) | 11.7 |
+| transcript (2 Gemini chunks) | 63.8 |
+| media (frames, crops, excerpts) | 7.4 |
+| score | 34.2 |
+| **total** | **122** |
+
+- **Calls:** 3 successful, plus **5 transient 503s retried**. The circuit breaker opened on the transcription
+  model, and the fallback model (`gemini-3.5-flash-lite`) finished the second chunk.
+- **Tokens and cost:** 100.7 k in / 16.9 k out, about **$0.017** (estimate).
+- **Result:** **Poor** (actual Average; score 2.30; holistic Average; confidence Medium). This is within one
+  level, and the vtt-mode prediction for AV-1 was Average.
+- **Evidence:** 12/12 verbal quotes verified.
+- **Cleanup:** media deleted after the job.
+
 ## Qualitative agreement with reviewer feedback
 
 The specific observations usually match what 8x8 reviewers wrote, e.g. EX-2: model flagged *no homework assigned*
