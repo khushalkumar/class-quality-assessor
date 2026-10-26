@@ -129,8 +129,18 @@ class JobRunner:
             media_path = None
             if job.source_type == "link":
                 with obs.stage_timer(log, "download"):
-                    self.store.update(job_id, message="Downloading recording", progress=0.02)
-                    media_path = media.download_from_link(job.source_ref, d)
+                    self.store.update(job_id, message="Downloading recording", progress=0.01)
+                    last = [0.0]
+
+                    def dl_progress(done: int, total: int | None) -> None:
+                        if time.monotonic() - last[0] < 1.0:
+                            return
+                        last[0] = time.monotonic()
+                        msg = (f"Downloading {done / 1024 ** 2:.0f} / {total / 1024 ** 2:.0f} MB" if total
+                               else f"Downloading {done / 1024 ** 2:.0f} MB")
+                        self.store.update(job_id, message=msg, progress=round(0.01 + 0.03 * (done / total if total else 0), 3))
+
+                    media_path = media.download_from_link(job.source_ref, d, progress=dl_progress)
             elif job.options.get("media_path"):
                 media_path = Path(job.options["media_path"])
                 if not media_path.exists():

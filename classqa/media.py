@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,53 +38,110 @@ def _run(cmd: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
 
 
 # ---------------------------------------------------------------- download
-def download_from_link(url: str, dest_dir: str | Path) -> Path:
-    """Download a recording from a Google Drive share link or a direct URL."""
+DRIVE_URL = "https://drive.usercontent.google.com/download"
+
+
+def _drive_id(url: str) -> str | None:
+    m = re.search(r"/d/([\w-]{20,})", url) or re.search(r"[?&]id=([\w-]{20,})", url)
+    return m.group(1) if m else None
+
+
+def _filename(resp, fallback: str) -> str:
+    cd = resp.headers.get("content-disposition", "")
+    m = re.search(r"filename\*=UTF-8''([^;]+)", cd) or re.search(r'filename="?([^";]+)"?', cd)
+    name = Path(requests_unquote(m.group(1)) if m else fallback).name
+    if Path(name).suffix.lower() not in SUPPORTED_EXT:
+        name += ".mp4"
+    return re.sub(r"[^\w.\- ]", "_", name)
+
+
+def requests_unquote(s: str) -> str:
+    from urllib.parse import unquote
+    return unquote(s)
+
+
+def stream_download(url: str, dest_dir: Path, *, params: dict | None = None, fallback_name: str = "recording.mp4",
+                    progress=None, max_retries: int = 3, chunk: int = 1 << 20) -> Path:
+    """Stream a URL to disk in 1 MB chunks (never held in memory), enforce MAX_BYTES while
+    downloading, report progress, and resume with HTTP Range after a dropped connection."""
+    import requests
+
+    out: Path | None = None
+    done, total, attempt = 0, None, 0
+    while True:
+        headers = {"Range": f"bytes={done}-"} if done else {}
+        try:
+            with requests.get(url, params=params, stream=True, timeout=(15, 120), headers=headers,
+                              allow_redirects=True) as r:
+                r.raise_for_status()
+                ctype = r.headers.get("content-type", "")
+                if "text/html" in ctype:
+                    raise UnsupportedFormat("That link returned a web page, not a media file. Use a direct file "
+                                            "link or a Google Drive *file* link shared with 'Anyone with the link'.")
+                if out is None:
+                    out = dest_dir / _filename(r, fallback_name)
+                if done and r.status_code != 206:      # server ignored Range -> restart cleanly
+                    done = 0
+                length = r.headers.get("content-length")
+                if total is None and length:
+                    total = int(length) + done
+                    if total > MAX_BYTES:
+                        raise MediaTooLarge(f"The linked file is {total / 1024 ** 2:.0f} MB; the limit is "
+                                            f"{MAX_BYTES // 1024 ** 2} MB.")
+                with open(out, "ab" if done else "wb") as f:
+                    for block in r.iter_content(chunk_size=chunk):
+                        f.write(block)
+                        done += len(block)
+                        if done > MAX_BYTES:
+                            raise MediaTooLarge(f"Download exceeded the {MAX_BYTES // 1024 ** 2} MB limit.")
+                        if progress:
+                            progress(done, total)
+            return out
+        except MediaError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (401, 403, 404):
+                raise DrivePermissionError(f"The link is not publicly accessible (HTTP {code}). Share it as "
+                                           "'Anyone with the link can view'.") from e
+            if code == 429:
+                raise DriveQuotaError("The file host is rate-limiting downloads (HTTP 429). Try again later.") from e
+            attempt += 1
+            if attempt > max_retries:
+                raise DownloadError(f"Download failed after {max_retries} retries: {str(e)[:150]}") from e
+            time.sleep(min(2 ** attempt, 10))
+
+
+def download_from_link(url: str, dest_dir: str | Path, progress=None) -> Path:
+    """Download a recording from a Google Drive file link or a direct URL (streamed to disk)."""
     url = url.strip()
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
+    if not re.match(r"^https?://", url):
+        raise DownloadError("Please paste a full http(s) link.")
     if "drive.google.com" in url or "docs.google.com" in url:
-        import gdown
-
         if "/folders/" in url:
             raise UnsupportedFormat("That is a Google Drive *folder* link. Share the individual recording file instead.")
-        m = re.search(r"/d/([\w-]{20,})", url) or re.search(r"[?&]id=([\w-]{20,})", url)
-        if not m:
+        fid = _drive_id(url)
+        if not fid:
             raise DownloadError("Could not find a file id in that Google Drive link.", detail=url[:120])
         try:
-            out = gdown.download(id=m.group(1), output=str(dest_dir) + os.sep, quiet=True, fuzzy=True)
-        except Exception as e:  # noqa: BLE001 - gdown raises a variety of errors
-            raise classify_drive_error(str(e)) from e
-        if not out or not Path(out).exists():
-            raise DrivePermissionError("Google Drive refused the download. Share the file as "
-                                       "'Anyone with the link can view' and try again.")
-        return Path(out)
-
-    import requests
-
-    try:
-        with requests.get(url, stream=True, timeout=60, allow_redirects=True) as r:
-            r.raise_for_status()
-            ctype = r.headers.get("content-type", "")
-            if "text/html" in ctype:
-                raise UnsupportedFormat("That link returned a web page, not a media file. Use a direct file link or a Google Drive file link.")
-            name = Path(url.split("?")[0]).name or "recording.mp4"
-            if Path(name).suffix.lower() not in SUPPORTED_EXT:
-                name += ".mp4"
-            out = dest_dir / name
-            with open(out, "wb") as f:
-                for chunk in r.iter_content(chunk_size=1 << 20):
-                    f.write(chunk)
-    except MediaError:
-        raise
-    except Exception as e:  # noqa: BLE001
-        code = getattr(getattr(e, "response", None), "status_code", None)
-        if code in (401, 403):
-            raise DrivePermissionError(f"The link is not publicly accessible (HTTP {code}).") from e
-        raise DownloadError(f"Download failed: {str(e)[:150]}") from e
-    if out.stat().st_size > MAX_BYTES:
-        raise MediaTooLarge(f"File is larger than the {MAX_BYTES // 1024 ** 2} MB limit.")
-    return out
+            # usercontent endpoint with confirm=t skips the large-file virus-scan page
+            return stream_download(DRIVE_URL, dest_dir, params={"id": fid, "export": "download", "confirm": "t"},
+                                   fallback_name=f"{fid}.mp4", progress=progress)
+        except (DrivePermissionError, MediaTooLarge):
+            raise
+        except MediaError as first:
+            # fallback: gdown handles older confirm-token flows
+            try:
+                import gdown
+                out = gdown.download(id=fid, output=str(dest_dir) + os.sep, quiet=True, fuzzy=True)
+            except Exception as e:  # noqa: BLE001
+                raise classify_drive_error(str(e)) from e
+            if not out or not Path(out).exists():
+                raise first
+            return Path(out)
+    return stream_download(url, dest_dir, progress=progress)
 
 
 def classify_drive_error(msg: str) -> MediaError:
