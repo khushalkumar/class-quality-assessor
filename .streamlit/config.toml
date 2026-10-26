@@ -1,7 +1,7 @@
 [server]
-# Browser uploads are capped at 400 MB (Streamlit holds uploads in memory; Cloud containers have ~1 GB RAM); larger/full-length recordings should use the Link tab
+# Browser uploads are capped at 500 MB; larger/full-length recordings should use the Link tab
 # (server-side streaming download with resume) - see DESIGN.md "large uploads".
-maxUploadSize = 400
+maxUploadSize = 500
 maxMessageSize = 200
 headless = true
 
