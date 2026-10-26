@@ -97,8 +97,9 @@ DIMENSIONS = [
 WEIGHTS = {d["key"]: d["weight"] for d in DIMENSIONS}
 assert abs(sum(WEIGHTS.values()) - 1) < 1e-9
 
-# weighted 1-5 score -> rating. Calibrated on the labelled set (EVALUATION.md).
-THRESHOLDS = [(3.95, "Excellent"), (3.35, "Good"), (2.75, "Average"), (0.0, "Poor")]
+# weighted 1-5 score -> rating. Initial guess was 3.95/3.35/2.75; only the Excellent cut was moved (to 3.45)
+# after the frozen v4 run on gemini-3.5-flash-lite (EVALUATION.md: in-sample 7/10, leave-one-out 5/10).
+THRESHOLDS = [(3.45, "Excellent"), (3.35, "Good"), (2.75, "Average"), (0.0, "Poor")]
 
 # a "major" red flag (e.g. unprofessional language, camera off most of the class, class unusable due to
 # A/V problems) caps the rating, mirroring how 8x8 treats conduct/quality issues.

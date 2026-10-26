@@ -17,10 +17,14 @@ from google.genai import types
 from pydantic import BaseModel
 
 # Assessment model (reasoning-heavy) and transcription model (high volume, cheaper/higher free-tier quota).
-PRIMARY_MODEL = os.environ.get("CLASSQA_MODEL", "gemini-3-flash-preview")
+# Frozen after evaluation (EVALUATION.md): gemini-3.5-flash-lite gave the best complete run (5/10 exact,
+# 9/10 within one level) and has a usable free-tier quota; the larger flash models share a ~20 requests/day
+# free-tier pool and returned many 429/503s. Fallbacks keep the app answering when a model is busy.
+PRIMARY_MODEL = os.environ.get("CLASSQA_MODEL", "gemini-3.5-flash-lite")
 TRANSCRIBE_MODEL = os.environ.get("CLASSQA_TRANSCRIBE_MODEL", "gemini-3.1-flash-lite-preview")
 FALLBACK_MODELS = [m for m in os.environ.get(
-    "CLASSQA_FALLBACK_MODELS", "gemini-3.1-pro-preview,gemini-flash-latest,gemini-3.1-flash-lite-preview").split(",") if m]
+    "CLASSQA_FALLBACK_MODELS",
+    "gemini-3.1-flash-lite-preview,gemini-flash-lite-latest,gemini-3-flash-preview,gemini-3.6-flash").split(",") if m]
 LAST_MODEL: dict[str, str] = {}   # schema name -> model that actually answered
 CACHE_DIR = Path(os.environ.get("CLASSQA_CACHE_DIR", Path(__file__).resolve().parent.parent / ".cache"))
 
@@ -76,7 +80,7 @@ def generate_json(contents: list, schema: type[BaseModel], *, system: str | None
     chain = [m for m in dict.fromkeys(models or [PRIMARY_MODEL, *FALLBACK_MODELS])]
     ck = None
     if cache_parts is not None:
-        ck = _cache_key([schema.__name__, system or "", chain[0], *cache_parts])
+        ck = _cache_key([schema.__name__, system or "", chain[0], os.environ.get("CLASSQA_CACHE_SALT", ""), *cache_parts])
         f = CACHE_DIR / f"{ck}.json"
         if f.exists():
             STATS["cache_hits"] += 1
