@@ -28,7 +28,7 @@ flowchart LR
     B --> D[ffmpeg: 12 frames + top-right speaker crops]
     B --> E[ffmpeg: silence & pixel stats]
     V[Optional Zoom .vtt] --> T
-    C -->|10-min chunks, parallel| G1[Gemini: speaker-labelled transcript]
+    C -->|20-min chunks, parallel| G1[Gemini: speaker-labelled transcript]
     G1 --> T[Transcript: teacher detection + name pseudonymisation]
     T --> M[Objective metrics]
     C --> X[4 x 90 s audio excerpts]
@@ -59,7 +59,7 @@ flowchart LR
   themes looked like "poor lighting"), and "teacher asks children individually" (present in almost every class,
   even weak ones, so it barely separates labels).
 - **Robustness.** Retries with exponential backoff on 429/5xx, model fallback chain, transcription in parallel
-  10-minute chunks (accurate timestamps, no output truncation on 90-minute classes), result cache keyed on file
+  20-minute chunks (accurate timestamps, no output truncation on 90-minute classes), result cache keyed on file
   hash + prompt version, clear errors for bad links/unsupported/too-short files.
 
 ## Run locally

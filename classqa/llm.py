@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import random
 import time
@@ -15,11 +16,15 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
+# Assessment model (reasoning-heavy) and transcription model (high volume, cheaper/higher free-tier quota).
 PRIMARY_MODEL = os.environ.get("CLASSQA_MODEL", "gemini-3-flash-preview")
+TRANSCRIBE_MODEL = os.environ.get("CLASSQA_TRANSCRIBE_MODEL", "gemini-3.1-flash-lite-preview")
 FALLBACK_MODELS = [m for m in os.environ.get(
     "CLASSQA_FALLBACK_MODELS", "gemini-3.1-pro-preview,gemini-flash-latest,gemini-3.1-flash-lite-preview").split(",") if m]
+LAST_MODEL: dict[str, str] = {}   # schema name -> model that actually answered
 CACHE_DIR = Path(os.environ.get("CLASSQA_CACHE_DIR", Path(__file__).resolve().parent.parent / ".cache"))
 
+log = logging.getLogger("classqa.llm")
 STATS = {"calls": 0, "failed_calls": 0, "prompt_tokens": 0, "output_tokens": 0, "cache_hits": 0}
 
 
@@ -68,15 +73,16 @@ def generate_json(contents: list, schema: type[BaseModel], *, system: str | None
                   cache_parts: list | None = None, thinking: str = "low", max_attempts: int = 6,
                   models: list[str] | None = None, on_retry: Callable[[str], None] | None = None) -> BaseModel:
     """Call Gemini with a response schema; return a validated Pydantic object."""
+    chain = [m for m in dict.fromkeys(models or [PRIMARY_MODEL, *FALLBACK_MODELS])]
     ck = None
     if cache_parts is not None:
-        ck = _cache_key([schema.__name__, system or "", *cache_parts])
+        ck = _cache_key([schema.__name__, system or "", chain[0], *cache_parts])
         f = CACHE_DIR / f"{ck}.json"
         if f.exists():
             STATS["cache_hits"] += 1
+            LAST_MODEL[schema.__name__] = chain[0] + " (cached)"
             return schema.model_validate_json(f.read_text())
 
-    chain = models or [PRIMARY_MODEL, *FALLBACK_MODELS]
     last: Exception | None = None
     for model in chain:
         for attempt in range(max_attempts):
@@ -95,7 +101,8 @@ def generate_json(contents: list, schema: type[BaseModel], *, system: str | None
                     STATS["prompt_tokens"] += um.prompt_token_count or 0
                     STATS["output_tokens"] += (um.candidates_token_count or 0) + (um.thoughts_token_count or 0)
                 obj = resp.parsed if isinstance(resp.parsed, schema) else schema.model_validate_json(resp.text or "")
-                if ck:
+                LAST_MODEL[schema.__name__] = model
+                if ck and model == chain[0]:   # only cache answers from the requested model
                     CACHE_DIR.mkdir(parents=True, exist_ok=True)
                     (CACHE_DIR / f"{ck}.json").write_text(obj.model_dump_json())
                 return obj
@@ -105,10 +112,12 @@ def generate_json(contents: list, schema: type[BaseModel], *, system: str | None
                 msg = str(e)
                 # model unavailable / zero quota for this model -> move to next model
                 if "404" in msg or "limit: 0" in msg or "PerDay" in msg:
+                    log.warning("%s unavailable (%s) - falling back", model, msg[:120])
                     break
                 if not _retryable(e):
                     raise LLMError(f"Gemini request failed: {msg[:300]}") from e
                 wait = min(90, (2 ** attempt) * 3 + random.uniform(0, 2))
+                log.warning("%s attempt %d failed (%s) - retrying in %.0fs", model, attempt + 1, msg[:120], wait)
                 if on_retry:
                     on_retry(f"{model}: {msg[:80]}... retrying in {wait:.0f}s")
                 time.sleep(wait)

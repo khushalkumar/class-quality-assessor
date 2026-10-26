@@ -38,6 +38,8 @@ def samples(root: Path):
 
 
 def main():
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s %(message)s")
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
     ap.add_argument("--tag", default=pipeline.PROMPT_VERSION)

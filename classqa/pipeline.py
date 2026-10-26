@@ -13,7 +13,7 @@ from .schemas import Assessment, TranscriptChunk
 from .transcript import Transcript, build_transcript, fmt_ts, from_vtt_text, render
 
 PROMPT_VERSION = "v4"
-CHUNK_S = 600          # transcription chunk length
+CHUNK_S = 1200         # transcription chunk length
 N_FRAMES = 12          # frames shown to the model
 EXCERPT_S = 90         # length of each audio excerpt for tone/energy judgement
 
@@ -95,7 +95,8 @@ def transcribe(media_path: Path, duration: float, work: Path, progress: Progress
         clip = media.extract_audio(media_path, work / f"chunk_{i}.mp3", start=s, duration=CHUNK_S)
         data = clip.read_bytes()
         res = llm.generate_json([llm.audio_part(data), TRANSCRIBE_PROMPT], TranscriptChunk,
-                                cache_parts=["transcribe", PROMPT_VERSION, fk, s, CHUNK_S], thinking="low")
+                                cache_parts=["transcribe", PROMPT_VERSION, fk, s, CHUNK_S], thinking="low",
+                                models=[llm.TRANSCRIBE_MODEL, llm.PRIMARY_MODEL, *llm.FALLBACK_MODELS])
         return s, res
 
     raw, langs, done = [], [], 0
@@ -244,5 +245,6 @@ def build_report(a: Assessment, met: dict, sig_audio: dict, sig_video: dict, tr:
         "transcript_source": tr.source,
         "language": tr.language,
         "prompt_version": PROMPT_VERSION,
-        "model": llm.PRIMARY_MODEL,
+        "model": llm.LAST_MODEL.get("Assessment", llm.PRIMARY_MODEL),
+        "transcription_model": llm.LAST_MODEL.get("TranscriptChunk") if tr.source == "gemini" else None,
     }

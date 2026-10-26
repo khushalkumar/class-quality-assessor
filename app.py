@@ -40,7 +40,7 @@ if not llm.get_api_key():
 with st.sidebar:
     st.header("How it works")
     st.markdown("""
-1. **Audio** → Gemini transcribes in 10-min chunks with speaker roles (or use your Zoom `.vtt`).
+1. **Audio** → Gemini transcribes in 20-min chunks with speaker roles (or use your Zoom `.vtt`).
 2. **Metrics** → talk-time split, questions, student turns, participation spread, monologues, silences, praise, homework, A/V-problem mentions.
 3. **Video** → 12 sampled frames (camera, face, branded background, lighting, screen share) + pixel checks.
 4. **Tone** → 3 short audio excerpts for teacher energy & audio quality.
@@ -48,7 +48,7 @@ with st.sidebar:
 """)
     st.markdown("**Rubric weights**")
     st.dataframe(pd.DataFrame([{"Dimension": d["name"], "Weight": f"{int(d['weight']*100)}%"} for d in DIMENSIONS]),
-                 hide_index=True, use_container_width=True)
+                 hide_index=True, width="stretch")
     st.caption("Privacy: the recording is processed in a temporary folder and sent only to the Gemini API; "
                "nothing is stored after the report is produced.")
 
@@ -90,7 +90,7 @@ def render(rep: dict) -> None:
                                text=[f"{d['score']}/5" for d in dims], textposition="outside"))
         fig.update_layout(xaxis=dict(range=[0, 5.5], dtick=1), height=300, margin=dict(l=10, r=10, t=10, b=10),
                           yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with cc2:
         m1, m2, m3 = st.columns(3)
         m1.metric("Duration", f"{met['duration_min']} min")
