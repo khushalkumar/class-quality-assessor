@@ -20,10 +20,11 @@ def ui_env(tmp_path, monkeypatch):
 
 
 def _report():
+    from test_quality import VTT
+
     from classqa.pipeline import build_report
     from classqa.schemas import Assessment
     from classqa.transcript import from_vtt_text
-    from test_quality import VTT
 
     class Ctx:
         missing_signals, models_used = ["video_frames"], {}

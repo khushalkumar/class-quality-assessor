@@ -4,6 +4,7 @@
   * decide whether a result is safe to auto-accept or must go to human review"""
 from __future__ import annotations
 
+import os
 import re
 from difflib import SequenceMatcher
 
@@ -74,14 +75,19 @@ def merge_runs(score_sets: list[dict[str, int]]) -> tuple[dict[str, float], list
     return mean, ratings, (max(idx) - min(idx)) >= 1
 
 
-def borderline(score: float, margin: float = 0.10) -> float | None:
+BORDERLINE_MARGIN = float(os.environ.get("CLASSQA_BORDERLINE_MARGIN", "0.05"))
+
+
+def borderline(score: float, margin: float | None = None) -> float | None:
     """Distance to the nearest threshold if within margin, else None."""
+    margin = BORDERLINE_MARGIN if margin is None else margin
     d = min(abs(score - th) for th, _ in rubric.THRESHOLDS if th > 0)
-    return round(d, 2) if d < margin else None
+    return round(d, 2) if round(d, 3) < margin else None
 
 
 def review_reasons(*, confidence: str, rating: str, holistic: str, weighted: float, run_ratings: list[str],
-                   quote_stats: dict, missing_signals: list[str], major_flags: int) -> list[str]:
+                   quote_stats: dict, missing_signals: list[str], major_flags: int,
+                   capped: bool = False) -> list[str]:
     reasons = []
     if confidence == "Low":
         reasons.append("Model confidence is low.")
@@ -99,5 +105,6 @@ def review_reasons(*, confidence: str, rating: str, holistic: str, weighted: flo
         if m in ("video_frames", "audio_excerpts"):
             reasons.append(f"Assessed without {m.replace('_', ' ')} - visual/tone checks are incomplete.")
     if major_flags:
-        reasons.append("A major red flag capped the rating - please confirm it.")
+        reasons.append("A major red flag capped the rating - please confirm it." if capped
+                       else "A major red flag was raised - please confirm it.")
     return reasons

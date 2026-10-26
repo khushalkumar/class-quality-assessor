@@ -312,7 +312,7 @@ def build_report(runs: list[tuple[Assessment, str]], met: dict, sig_audio: dict,
     qstats = quality.verify_evidence(adump, render(tr, max_chars=10 ** 9))
     reasons = quality.review_reasons(confidence=conf, rating=rating, holistic=a.holistic_rating, weighted=ws,
                                      run_ratings=run_ratings, quote_stats=qstats, missing_signals=missing,
-                                     major_flags=len(major))
+                                     major_flags=len(major), capped=capped)
     return {
         "rating": rating,
         "weighted_score": ws,

@@ -65,7 +65,7 @@ def test_merge_runs_detects_disagreement():
 
 
 def test_borderline():
-    assert quality.borderline(3.40) is not None
+    assert quality.borderline(3.42) is not None and quality.borderline(3.40, margin=0.1) is not None
     assert quality.borderline(4.5) is None
 
 
