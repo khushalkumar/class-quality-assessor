@@ -86,6 +86,48 @@ Visual checks are not yet stable run-to-run. A dedicated, narrowly-prompted back
 template matching for the 8x8 logo) is the obvious next step. Gemini transcripts also merge short replies, so
 student-turn counts are lower than with Zoom VTTs (see below).
 
+## Production job path (pipeline 2.0) and trust layer
+
+The refactor (job store, staged checkpoints, failure handling, see [DESIGN.md](../DESIGN.md)) did **not** change the
+prompt (`v4`), rubric weights, thresholds or label logic, so I did not rerun the full eval. Two checks instead:
+
+**1. One real end-to-end job through the new path.** The CLI was run on the smallest sample (AV-1, 38 min) from a
+public Google Drive link, with no `.vtt` and a fresh job store. Same path as the hosted app's Link tab.
+
+| stage | download | validate | signals | transcript | metrics | media | score | finalize | total |
+|---|---|---|---|---|---|---|---|---|---|
+| seconds | 5.2 | 0.1 | 11.7 | 63.8 | 0.0 | 7.4 | 34.2 | 0.0 | **122.4** |
+
+Status `done`: rated **Poor** (weighted score 2.30, holistic Average, confidence Medium). Actual label is Average;
+vtt-mode gave Average (2.75). This is one level off, and the gap is mostly Gemini transcription versus Zoom's
+transcript (see the end-to-end table above). 3 successful calls plus 5 HTTP 503s on the transcription model. The
+circuit breaker opened and transcription fell back to `gemini-3.5-flash-lite`, so the job completed with no user
+action. ~101k input / ~17k output tokens, **est. $0.017**. Evidence check: 11 exact quotes, 1 approximate,
+0 unverified. The downloaded media was deleted at the end.
+
+**2. Trust layer measured offline on the saved v4-l35 outputs** (`eval/review_analysis.py`, no API calls; review
+margin 0.05):
+
+| id | actual | predicted | needs review | why |
+|---|---|---|---|---|
+| EX-1 | Excellent | Excellent | yes | holistic view 2 levels lower |
+| EX-2 | Excellent | Excellent | yes | holistic gap; on a boundary |
+| GO-1 | Good | Poor | **yes** | major red flag |
+| GO-2 | Good | Good | no | |
+| AV-1 | Average | Average | yes | on a boundary |
+| AV-2 | Average | Poor | **yes** | major red flag |
+| PO-1 | Poor | Poor | no | |
+| PO-2 | Poor | Average | no (miss) | |
+| QI-1 | Poor | Poor | no | |
+| QI-2 | Poor | Poor | yes | major red flag |
+
+- 6/10 routed to review. That includes 2 of the 3 misclassified classes, and 3 of the 4 auto-accepted classes are
+  correct. Routing on red flags and boundaries catches the costly errors, but it is too eager to be cheap: a
+  reviewer would see 60% of classes. The margin was chosen on this same data.
+- Quotes: 135 exact, 6 approximate (whitespace/punctuation), **3 not found → removed from the report**, plus 31
+  non-verbal observations (no quote to check). So about 2% of model quotes would have been fabricated or garbled
+  without this check.
+
 ## Qualitative agreement with reviewer feedback
 
 The specific observations usually match what 8x8 reviewers wrote, e.g. EX-2: model flagged *no homework assigned*
@@ -111,4 +153,4 @@ the face check came back "unclear" rather than "not visible" — a partial miss)
 
 10 labelled classes, 2 per label; thresholds tuned on the same data (hence leave-one-out reported). LLM runs vary
 by up to ~0.4 on the weighted score between runs/models, enough to move borderline classes by one level. Free-tier
-quotas (20 requests/day on the larger flash models) prevented repeated runs and self-consistency voting.
+quotas (20 requests/day on the larger flash models) prevented repeated runs and self-consistency voting. Self-consistency (n=2) is implemented and unit-tested, but it has not been evaluated on real classes.
