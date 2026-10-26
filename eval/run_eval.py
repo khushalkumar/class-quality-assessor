@@ -18,7 +18,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from classqa import llm, pipeline, rubric  # noqa: E402
+from classqa import pipeline, rubric, worker  # noqa: E402
+from classqa.store import JobStatus  # noqa: E402
 
 LABELS = {"excellent": ("EX", "Excellent"), "good": ("GO", "Good"), "average": ("AV", "Average"),
           "weak": ("PO", "Poor"), "quality issue": ("QI", "Poor"), "demo": ("DE", None)}
@@ -45,25 +46,29 @@ def main():
     ap.add_argument("--tag", default=pipeline.PROMPT_VERSION)
     ap.add_argument("--mode", choices=["vtt", "full"], default="vtt")
     ap.add_argument("--only", default="")
+    ap.add_argument("--self-consistency", type=int, default=1)
     args = ap.parse_args()
     only = set(filter(None, args.only.split(",")))
     out_dir = Path(__file__).parent / "runs" / args.tag
     out_dir.mkdir(parents=True, exist_ok=True)
-    rows = []
+    rows, usage_total = [], []
+    runner = worker.JobRunner(start=False)
     for sid, label, mp4, vtt in samples(Path(args.data)):
         if only and sid not in only:
             continue
         t0 = time.time()
         vtt_text = vtt.read_text(encoding="utf-8", errors="ignore") if (vtt and args.mode == "vtt") else None
-        try:
-            rep = pipeline.assess(mp4, vtt_text, progress=lambda f, m: None)
-        except Exception as e:  # noqa: BLE001
-            print(f"{sid}: ERROR {e}", flush=True)
+        job = worker.run_sync(mp4, vtt_text, runner=runner, self_consistency=args.self_consistency)
+        if job.status == JobStatus.FAILED:
+            print(f"{sid}: FAILED {job.error_code}: {job.error_message}", flush=True)
             continue
+        rep = job.result
+        usage_total.append(rep["job"]["usage"])
         (out_dir / f"{sid}_{args.mode}.json").write_text(json.dumps(rep, indent=1))
         s = rep["dimension_scores"]
         row = {"id": sid, "mode": args.mode, "actual": label or "(unlabelled)", "pred": rep["rating"],
                "holistic": rep["holistic_rating"], "score": rep["weighted_score"], "conf": rep["confidence"],
+               "review": "yes" if rep.get("needs_review") else "no",
                **{k: s[k] for k in rubric.WEIGHTS}, "secs": round(time.time() - t0)}
         rows.append(row)
         print(json.dumps(row), flush=True)
@@ -73,14 +78,17 @@ def main():
     exact = sum(r["pred"] == r["actual"] for r in lab)
     within1 = sum(abs(idx(r["pred"]) - idx(r["actual"])) <= 1 for r in lab)
     hol = sum(r["holistic"] == r["actual"] for r in lab)
-    hdr = ["id", "actual", "pred", "holistic", "score", "conf", *rubric.WEIGHTS]
+    hdr = ["id", "actual", "pred", "holistic", "score", "conf", "review", *rubric.WEIGHTS]
     md = [f"### Run `{args.tag}` (mode={args.mode})", "",
           f"Exact: **{exact}/{len(lab)}**, within one level: **{within1}/{len(lab)}**, "
           f"holistic-only exact: {hol}/{len(lab)}", "",
           "| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
     md += ["| " + " | ".join(str(r[h]) for h in hdr) + " |" for r in rows]
-    md += ["", f"Gemini calls: {llm.STATS['calls']} (failed {llm.STATS['failed_calls']}), cache hits "
-               f"{llm.STATS['cache_hits']}, tokens in/out: {llm.STATS['prompt_tokens']}/{llm.STATS['output_tokens']}"]
+    calls = sum(u["calls"] for u in usage_total)
+    tin = sum(u["tokens_in"] for u in usage_total)
+    tout = sum(u["tokens_out"] for u in usage_total)
+    cost = sum(u["est_cost_usd"] for u in usage_total)
+    md += ["", f"Gemini calls (excluding checkpoint hits): {calls}, tokens in/out: {tin}/{tout}, est. cost ${cost:.4f}"]
     text = "\n".join(md)
     (Path(__file__).parent / f"results_{args.tag}_{args.mode}.md").write_text(text + "\n")
     print(text)

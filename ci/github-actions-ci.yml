@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+    branches: [main, production-design]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: System deps (ffmpeg, same as packages.txt on Streamlit Cloud)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Python deps
+        run: pip install -r requirements.txt pytest ruff
+      - name: Lint
+        run: ruff check .
+      - name: Tests (fakes only - no API key, no network)
+        env:
+          CLASSQA_LOG_LEVEL: WARNING
+        run: pytest -q

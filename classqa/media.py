@@ -14,13 +14,25 @@ from pathlib import Path
 
 import numpy as np
 
+from .errors import (
+    CorruptMedia,
+    DownloadError,
+    DrivePermissionError,
+    DriveQuotaError,
+    MediaError,
+    MediaTooLarge,
+    MediaTooLong,
+    MediaTooShort,
+    NoAudioTrack,
+    SilentAudio,
+    UnsupportedFormat,
+)
+
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 AUDIO_EXT = {".mp3", ".m4a", ".wav", ".ogg", ".aac", ".flac", ".opus"}
 SUPPORTED_EXT = VIDEO_EXT | AUDIO_EXT
 
 
-from .errors import (CorruptMedia, DownloadError, DrivePermissionError, DriveQuotaError, MediaError, MediaTooLarge,
-                     MediaTooLong, MediaTooShort, NoAudioTrack, SilentAudio, UnsupportedFormat)
 
 MAX_BYTES = int(os.environ.get("CLASSQA_MAX_BYTES", str(2 * 1024 ** 3)))          # 2 GB
 MAX_DURATION_S = float(os.environ.get("CLASSQA_MAX_DURATION_S", str(3 * 3600)))   # 3 h

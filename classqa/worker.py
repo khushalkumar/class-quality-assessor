@@ -222,7 +222,8 @@ def ops_summary(store: SQLiteStore, limit: int = 500) -> dict:
             costs.append(u.get("est_cost_usd", 0))
             toks.append(u.get("tokens_in", 0) + u.get("tokens_out", 0))
             secs.append(j.result.get("job", {}).get("seconds", 0))
-    avg = (lambda xs: round(sum(xs) / len(xs), 4) if xs else None)
+    def avg(xs):
+        return (round(sum(xs) / len(xs), 4) if xs else None)
     return {"jobs": len(jobs), "by_status": by_status, "failure_reasons": reasons,
             "avg_cost_usd_per_class": avg(costs), "avg_seconds_per_class": avg(secs), "avg_tokens_per_class": avg(toks),
             "requests_today": store.count()}

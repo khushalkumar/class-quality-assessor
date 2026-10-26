@@ -19,18 +19,18 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from . import media, obs, quality, rubric
 from . import metrics as M
 from .errors import ClassQAError, MediaError
-from .llm import INLINE_LIMIT, PRIMARY_MODEL, TRANSCRIBE_MODEL, FALLBACK_MODELS, LLMClient, audio_part, image_part
+from .llm import FALLBACK_MODELS, INLINE_LIMIT, PRIMARY_MODEL, TRANSCRIBE_MODEL, LLMClient, audio_part, image_part
 from .prompts import PROMPT_VERSION, SYSTEM, TRANSCRIBE_PROMPT
 from .schemas import Assessment, TranscriptChunk
-from .transcript import Transcript, build_transcript, fmt_ts, from_dict, from_vtt_text, render
+from .transcript import Transcript, build_transcript, fmt_ts, from_vtt_text, render
 
 log = logging.getLogger("classqa.pipeline")
 
@@ -145,7 +145,7 @@ def transcribe(ctx: JobContext, duration: float) -> Transcript:
                     continue
                 raw.append([s + rel, None, seg.speaker.strip() or "Unknown", seg.text.strip()])
     raw.sort(key=lambda r: r[0])
-    for a, b in zip(raw, raw[1:] + [None]):
+    for a, b in zip(raw, raw[1:] + [None], strict=False):
         est = a[0] + max(1.0, len(a[3].split()) / 2.5)
         a[1] = min(est, b[0]) if b else est
     cues = [(a, max(b, a + 0.3), spk, t) for a, b, spk, t in raw]

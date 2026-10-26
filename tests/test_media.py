@@ -2,8 +2,18 @@
 import pytest
 
 from classqa import media
-from classqa.errors import (CorruptMedia, DownloadError, DrivePermissionError, DriveQuotaError, MediaTooLarge,
-                            MediaTooLong, MediaTooShort, NoAudioTrack, SilentAudio, UnsupportedFormat)
+from classqa.errors import (
+    CorruptMedia,
+    DownloadError,
+    DrivePermissionError,
+    DriveQuotaError,
+    MediaTooLarge,
+    MediaTooLong,
+    MediaTooShort,
+    NoAudioTrack,
+    SilentAudio,
+    UnsupportedFormat,
+)
 
 
 def test_good_file_probes(media_dir):

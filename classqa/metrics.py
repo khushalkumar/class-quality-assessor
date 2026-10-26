@@ -50,13 +50,13 @@ def compute(tr: Transcript, duration_s: float | None = None) -> dict:
             run_start = None
 
     # longest gap with no speech at all (after class starts)
-    gaps = [(b.start - a.end, a.end) for a, b in zip(segs, segs[1:])]
+    gaps = [(b.start - a.end, a.end) for a, b in zip(segs, segs[1:], strict=False)]
     longest_gap, gap_at = max(gaps, default=(0.0, None))
 
     turns = Counter(s.speaker for s in s_segs)
     n_spoke = len(turns)
     balance = round(min(turns.values()) / max(turns.values()), 2) if n_spoke > 1 else (1.0 if n_spoke else 0.0)
-    addressed = Counter(l for s in t_segs for l in s.names_mentioned)
+    addressed = Counter(lab for s in t_segs for lab in s.names_mentioned)
 
     def hits(pattern, pool, limit=8):
         out = [(fmt_ts(s.start), s.text[:120]) for s in pool if pattern.search(s.text)]

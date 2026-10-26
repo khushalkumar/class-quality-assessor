@@ -1,6 +1,8 @@
 [server]
-maxUploadSize = 1024
-maxMessageSize = 1024
+# Browser uploads are capped at 500 MB; larger/full-length recordings should use the Link tab
+# (server-side streaming download with resume) - see DESIGN.md "large uploads".
+maxUploadSize = 500
+maxMessageSize = 200
 headless = true
 
 [theme]
