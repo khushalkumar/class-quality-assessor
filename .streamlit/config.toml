@@ -1,0 +1,11 @@
+[server]
+maxUploadSize = 1024
+maxMessageSize = 1024
+headless = true
+
+[theme]
+primaryColor = "#4F46E5"
+base = "light"
+
+[browser]
+gatherUsageStats = false

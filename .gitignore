@@ -1,0 +1,28 @@
+# --- confidential data / media: never commit ---
+data/
+dataset/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4a
+*.mp3
+*.ogg
+*.wav
+*.vtt
+*.jpg
+*.png
+!docs/*.png
+# --- secrets ---
+.env
+.env.*
+.streamlit/secrets.toml
+*.key
+.gemini_key
+.gh_token
+# --- local ---
+.venv/
+.cache/
+__pycache__/
+*.pyc
+eval/runs/

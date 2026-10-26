@@ -1,0 +1,8 @@
+streamlit>=1.40
+google-genai>=1.40
+pydantic>=2.6
+gdown>=5.2
+requests>=2.31
+pandas>=2.0
+plotly>=5.20
+numpy>=1.26
