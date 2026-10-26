@@ -70,7 +70,21 @@ tournament; on this segment alone the model's criticism is defensible, but the l
 
 ## End-to-end (real mp4, no transcript; Gemini transcription)
 
-FULL_RESULTS_PLACEHOLDER
+Full path: ffmpeg → `gemini-3.1-flash-lite-preview` transcription in 20-min chunks (3 per class, cached after the
+first run) → assessment. All three runs completed without errors.
+
+| id | actual | vtt-mode prediction | full-mode prediction | full-mode score | assessment model |
+|---|---|---|---|---|---|
+| EX-2 | Excellent | Good (3.9, v4-g36) | Good (3.80) | 3.80 | gemini-3.6-flash |
+| PO-2 | Poor | Average (2.90) | Average (3.15) | 3.15 | gemini-3.5-flash-lite (final) |
+| QI-1 | Poor | Poor (2.70) | **Good** (3.35) | 3.35 | gemini-3.5-flash-lite (final) |
+
+The end-to-end path works and lands within one level of the vtt-mode result in 2/3 cases. QI-1 shows the
+biggest remaining weakness: on the same frames the model once called the teacher's background "other
+virtual/plain" (correct, it is a space theme) and once "8x8 branded space/earth background" (setup 5 instead of 3).
+Visual checks are not yet stable run-to-run. A dedicated, narrowly-prompted background/face check (or simple
+template matching for the 8x8 logo) is the obvious next step. Gemini transcripts also merge short replies, so
+student-turn counts are lower than with Zoom VTTs (see below).
 
 ## Qualitative agreement with reviewer feedback
 
