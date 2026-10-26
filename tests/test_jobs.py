@@ -113,3 +113,43 @@ def test_ops_summary(runner, media_dir, store):
     s = worker.ops_summary(store)
     assert s["by_status"].get("failed") == 1 and s["failure_reasons"] == {"corrupt_media": 1}
     assert s["avg_cost_usd_per_class"] is not None
+
+
+def test_frame_extraction_failure_degrades(runner, media_dir, monkeypatch):
+    from classqa import media
+    from classqa.errors import CorruptMedia
+
+    def boom(*a, **k):
+        raise CorruptMedia("frame grab failed")
+    monkeypatch.setattr(media, "frame_jpeg", boom)
+    j = _run(runner(), media_dir / "good.mp4")
+    assert j.status == JobStatus.NEEDS_REVIEW and "video_frames" in j.result["missing_signals"]
+
+
+def test_unexpected_bug_is_contained(runner, media_dir, monkeypatch):
+    from classqa import metrics
+
+    def bug(*a, **k):
+        raise KeyError("oops")
+    monkeypatch.setattr(metrics, "compute", bug)
+    j = _run(runner(), media_dir / "good.mp4")
+    assert j.status == JobStatus.FAILED and j.error_code == "internal_error"
+    assert not (worker.DATA_DIR / "jobs" / j.id).exists()
+
+
+def test_restart_recovery_marks_stale_jobs_failed(store, make_llm, tmp_path, monkeypatch):
+    monkeypatch.setattr(worker, "DATA_DIR", tmp_path / "data")
+    j = store.create(Job.new(source_type="link", source_ref="https://x/y.mp4"))
+    store.update(j.id, status=JobStatus.TRANSCRIBING)
+    store._db.execute("UPDATE jobs SET updated_at=0 WHERE id=?", (j.id,))
+    worker.JobRunner(store=store, llm=make_llm(), start=False)
+    assert store.get(j.id).error_code == "worker_restarted"
+
+
+def test_background_thread_processes_queue(store, make_llm, tmp_path, monkeypatch, media_dir):
+    monkeypatch.setattr(worker, "DATA_DIR", tmp_path / "data")
+    r = worker.JobRunner(store=store, llm=make_llm(), start=True)
+    j = r.submit(source_type="path", source_ref="good.mp4", media_path=media_dir / "good.mp4")
+    done = r.wait(j.id, timeout=120, poll=0.2)
+    r.stop()
+    assert done.status in (JobStatus.DONE, JobStatus.NEEDS_REVIEW)
