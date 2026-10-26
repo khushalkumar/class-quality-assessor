@@ -126,3 +126,11 @@ def to_rating(score: float) -> str:
         if score >= th:
             return r
     return "Poor"
+
+
+def rubric_version() -> str:
+    """Content hash of everything that affects scoring/labels - stored with every result for audit."""
+    import hashlib
+    import json
+    blob = json.dumps({"dims": DIMENSIONS, "thresholds": THRESHOLDS, "cap": MAJOR_FLAG_CAP}, sort_keys=True)
+    return "r-" + hashlib.sha256(blob.encode()).hexdigest()[:10]

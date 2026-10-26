@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 
 TS = re.compile(r"(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})|(\d{1,2}):(\d{2})[.,](\d{1,3})")
 
@@ -52,8 +52,8 @@ def parse_vtt(text: str) -> list[tuple[float, float, str | None, str]]:
     cues = []
     blocks = re.split(r"\n\s*\n", text.replace("\r", ""))
     for b in blocks:
-        lines = [l for l in b.strip().split("\n") if l.strip()]
-        idx = next((i for i, l in enumerate(lines) if "-->" in l), None)
+        lines = [ln for ln in b.strip().split("\n") if ln.strip()]
+        idx = next((i for i, ln in enumerate(lines) if "-->" in ln), None)
         if idx is None:
             continue
         a, _, z = lines[idx].partition("-->")
@@ -156,3 +156,8 @@ def render(tr: Transcript, max_chars: int = 160_000) -> str:
         half = max_chars // 2
         out = out[:half] + "\n[... middle of transcript trimmed for length ...]\n" + out[-half:]
     return out
+
+
+def from_dict(d: dict) -> Transcript:
+    return Transcript([Segment(**s) for s in d["segments"]], d["source"], d.get("language", "unknown"),
+                      d.get("n_students", 0))
