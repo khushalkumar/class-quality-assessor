@@ -127,6 +127,9 @@ def render(rep: dict) -> None:
         st.json(rep["metrics"])
     with st.expander("Visual check notes"):
         st.write(a["visual"]["notes"])
+    st.caption(f"Assessment model: {rep.get('model')} · transcript: {rep.get('transcript_source')}"
+               + (f" ({rep.get('transcription_model')})" if rep.get('transcription_model') else "")
+               + f" · prompt {rep.get('prompt_version')}")
     d1, d2 = st.columns(2)
     d1.download_button("⬇️ Report (Markdown)", to_markdown(rep), "class_report.md", "text/markdown")
     d2.download_button("⬇️ Report (JSON)", json.dumps(rep, indent=2), "class_report.json", "application/json")

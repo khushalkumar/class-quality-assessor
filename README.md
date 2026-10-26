@@ -39,7 +39,7 @@ flowchart LR
 
 **Why this design**
 
-- **Multimodal on purpose.** 8x8's own reviewer feedback (see `EVALUATION.md`) is as much about *how the class looks
+- **Multimodal on purpose.** 8x8's own reviewer feedback (see `eval/EVALUATION.md`) is as much about *how the class looks
   and sounds* (8x8 branded background, teacher's face visible, energetic and pleasant voice, quality issues) as
   about what is said. So the model sees the transcript, sampled frames, zoomed crops of the speaker thumbnail
   (during screen share the teacher is a tiny tile in the top-right corner — full frames alone missed it), and
@@ -55,9 +55,12 @@ flowchart LR
   it disagrees.
 - **Objective metrics as grounding.** Computed locally from the transcript so claims like "few children spoke"
   can be checked against numbers, and shown to the user.
-- **Signals that turned out misleading** (documented in `EVALUATION.md`): raw frame brightness (dark Lichess/Zoom
+- **Signals that turned out misleading** (documented in `eval/EVALUATION.md`): raw frame brightness (dark Lichess/Zoom
   themes looked like "poor lighting"), and "teacher asks children individually" (present in almost every class,
   even weak ones, so it barely separates labels).
+- **Models.** Transcription: `gemini-3.1-flash-lite-preview` (high free-tier quota, many calls). Assessment:
+  `gemini-3.5-flash-lite` — it gave the best *complete* evaluation run; the bigger flash models share a ~20
+  requests/day free-tier pool and returned many 429/503s during evaluation. Both are env-configurable.
 - **Robustness.** Retries with exponential backoff on 429/5xx, model fallback chain, transcription in parallel
   20-minute chunks (accurate timestamps, no output truncation on 90-minute classes), result cache keyed on file
   hash + prompt version, clear errors for bad links/unsupported/too-short files.
@@ -73,20 +76,28 @@ mkdir -p .streamlit && echo 'GEMINI_API_KEY = "your-key"' > .streamlit/secrets.t
 streamlit run app.py
 ```
 
-Optional env vars: `CLASSQA_MODEL` (default `gemini-3-flash-preview`), `CLASSQA_FALLBACK_MODELS`.
+Tested locally with Python 3.13 (3.12 recommended on Streamlit Cloud). Run the offline tests with `pip install pytest && pytest -q tests`.
+
+Optional env vars: `CLASSQA_MODEL` (assessment, default `gemini-3.5-flash-lite`), `CLASSQA_TRANSCRIBE_MODEL`
+(default `gemini-3.1-flash-lite-preview`), `CLASSQA_FALLBACK_MODELS` (comma-separated chain).
 
 ## Deploy (Streamlit Community Cloud)
 
-1. Point a new app at this repo, main file `app.py`.
+1. Point a new app at this repo, branch `main`, main file `app.py`, Python 3.12.
 2. `packages.txt` installs ffmpeg; `requirements.txt` installs Python deps.
-3. In *Settings → Secrets* add `GEMINI_API_KEY = "..."`.
+3. In *Settings → Secrets* add `GEMINI_API_KEY = "..."` (the app reads `st.secrets["GEMINI_API_KEY"]`, or the
+   `GEMINI_API_KEY` env var).
 4. Upload limit is raised to 1 GB in `.streamlit/config.toml`. For very large files use a Google Drive link
    (shared as "Anyone with the link").
 
 ## Evaluation
 
+Final configuration on the 10 labelled sample classes: **7/10 exact, 9/10 within one level** in-sample
+(leave-one-out threshold fit: 5/10 exact). Both "known quality issue" classes are rated Poor; they are caught by the
+video/audio checks, not the transcript. First full run (transcript-heavy rubric) was 4/10 exact, 7/10 within one.
+
 `eval/run_eval.py` runs the full pipeline on the labelled sample classes and prints predicted vs actual labels
-(anonymised IDs only; raw outputs go to the git-ignored `eval/runs/`). Iterations and results: **[EVALUATION.md](EVALUATION.md)**.
+(anonymised IDs only; raw outputs go to the git-ignored `eval/runs/`). Iterations and results: **[eval/EVALUATION.md](eval/EVALUATION.md)**.
 
 ```bash
 python eval/run_eval.py --data "/path/to/class recordings" --tag v3            # uses provided .vtt transcripts
@@ -106,10 +117,15 @@ classqa/llm.py         Gemini client: retries, fallback, cache, usage stats
 classqa/pipeline.py    orchestration + prompts + deterministic aggregation
 classqa/report.py      Markdown report
 eval/run_eval.py       evaluation harness
+eval/rescore.py        re-apply aggregation to saved outputs (no API calls)
+eval/EVALUATION.md     runs, results, misleading signals
+tests/                 offline unit tests (synthetic data)
 ```
 
 ## Limitations
 
+- On the free tier the app can hit daily quotas; it retries with backoff and walks the fallback chain, but a
+  paid key is recommended for reliable hosted use. A 60-min class needs ~4 Gemini calls (3 transcription + 1 assessment).
 - Calibrated on only 10 labelled classes (2 per label + 2 "known quality issue"); thresholds may need retuning on
   more data. Run-to-run LLM variance can move borderline classes by one level (confidence is reported).
 - Tone/energy is judged from four 90-second excerpts, not the full audio (quota trade-off).
@@ -122,7 +138,8 @@ eval/run_eval.py       evaluation harness
 ## Privacy
 
 Recordings involve minors. The app writes the upload to a temporary folder, sends audio/frames **only to the Gemini
-API**, and deletes the temp folder after the report is built. Real names are replaced by labels (`Teacher`,
-`Student 1`…) before the transcript is sent for assessment, and the model is instructed never to output names.
+API**, and deletes the temp folder after the report is built. Zoom display names (and their occurrences in the text) are
+replaced by labels (`Teacher`, `Student 1`…) before the transcript is sent for assessment, and the model is
+instructed never to output names (names spoken aloud that are not display names can still appear in transcripts).
 No recordings, transcripts, frames or results are committed to this repository (`.gitignore` blocks media, `.vtt`,
-`data/`, `eval/runs/`, `.env` and `secrets.toml`). Note: the analysis cache (`.cache/`) stores only the model's JSON output.
+`data/`, `eval/runs/`, `.env` and `secrets.toml`). The local analysis cache (`.cache/`, git-ignored) stores only the model's JSON output.
