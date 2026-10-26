@@ -135,7 +135,9 @@ python -m classqa.cli batch links.txt --out results/ --workers 2 --self-consiste
 pip install pytest ruff && ruff check . && pytest -q
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) runs the same on every push and PR.
+The GitHub Actions workflow (Python 3.12, ffmpeg, `ruff check .`, `pytest -q`) is in `ci/github-actions-ci.yml`.
+To turn it on, copy it to `.github/workflows/ci.yml`. The push token for this repo has no `workflow` scope, so it
+could not add that file itself.
 
 **Configuration** (env vars, all optional):
 
@@ -203,7 +205,8 @@ classqa/schemas.py     Pydantic response schemas
 classqa/report.py      Markdown report
 classqa/cli.py         assess / batch entrypoint
 eval/                  run_eval.py, rescore.py, review_analysis.py, EVALUATION.md
-tests/                 offline tests (fake backend, synthetic media); .github/workflows/ci.yml
+tests/                 offline tests (fake backend, synthetic media)
+ci/github-actions-ci.yml  CI workflow (copy to .github/workflows/ to enable)
 ```
 
 ## Limitations
