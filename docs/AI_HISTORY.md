@@ -104,3 +104,31 @@ limits, and `maxUploadSize` is 500 MB. The real Drive download of that file took
 no `.vtt`. The job finished as Poor (2.30; actual label Average). 5 HTTP 503s on the transcription model opened the
 breaker, transcription fell back to another model, and the job completed. 3 successful calls, ~$0.017.
 - Final review pass: pydantic validation errors include the raw input, which could hold transcript text. Schema-error logs and repair prompts now carry only field locations and error types.
+
+## 8. Advanced evals (after submission)
+
+I asked for agreement statistics, stability, robustness tests, an LLM judge for feedback quality, and a CI
+regression gate, with main green at every commit.
+
+| Step | What the agent did | What came out |
+|---|---|---|
+| κ + confusion | `classqa/evalmetrics.py` (pure Python): quadratic weighted κ, confusion matrix, scripted leave-one-out threshold fit | κ 0.786 in-sample, 0.762 leave-one-out. The scripted leave-one-out gives 6/10; the earlier hand fit gave 5/10, and I kept 5/10 as the headline |
+| Per-dimension | Checked the labels first: overall-only. So no per-dimension accuracy; instead Spearman vs label/holistic and cross-model consistency | Rapport is most aligned (0.80); energy is weak (0.29) despite its 25% weight; setup is least reproducible across models |
+| Stability | `eval/stability.py`: fresh checkpoint store per repeat, `.vtt` transcript, scoring only; 3 classes × 3 repeats, run twice (fixed seed, varied seed) | Fixed seed: identical. Varied seed: flip rate 0.67, EX-1 Average↔Excellent |
+| Robustness | `tests/test_robustness.py`: truncated / garbled / silent / Hindi / prompt-injection inputs with fake backends | 13 tests; added a prompt-injection tripwire (0 hits on the 12 real transcripts) |
+| Judge | `eval/judge.py` with a negative control | Real feedback 3.7–4.9 per criterion, controls 1; grounding is the weakest |
+| Gate | `tests/test_eval_gate.py` + `eval/frozen/gate.json`, inside the existing pytest step | Fails CI on a regression; a test proves a bad threshold change trips it |
+
+**Bugs and design flaws this work found:**
+- **Self-consistency was a no-op.** Every run used the same fixed seed, so "independent" runs were replays and
+  could never disagree. The stability run made this obvious. Extra runs now use distinct seeds, with a unit test.
+- **Error classification read status codes out of message text.** A `401`/`403` substring anywhere in the message
+  counted as an auth error. One judge call failed as "AuthError" during a quota-heavy run, though I could not
+  reproduce the exact message. Classification now uses the SDK's numeric `code` first, with word-boundary
+  matching as a fallback.
+- **Local schema errors were retried as "transient".** My judge schema used `Literal[1..5]`, which the SDK cannot
+  convert, and the client retried it 5 times per model. Local `ValidationError`s are now `bad_request` and are
+  not retried.
+- **The headline numbers are one draw.** A rerun today with the production seed moved EX-1 from 3.65 to 3.10
+  (Excellent → Average). EVALUATION.md now says so. The fix (n ≥ 3 median by default) changes scoring logic, so I
+  put it on the roadmap instead of shipping it without a re-eval.

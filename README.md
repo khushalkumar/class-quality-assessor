@@ -135,9 +135,9 @@ python -m classqa.cli batch links.txt --out results/ --workers 2 --self-consiste
 pip install pytest ruff && ruff check . && pytest -q
 ```
 
-The GitHub Actions workflow (Python 3.12, ffmpeg, `ruff check .`, `pytest -q`) is in `ci/github-actions-ci.yml`.
-To turn it on, copy it to `.github/workflows/ci.yml`. The push token for this repo has no `workflow` scope, so it
-could not add that file itself.
+GitHub Actions (`.github/workflows/ci.yml`: Python 3.12, ffmpeg, `ruff check .`, `pytest -q`) runs on every push
+to main. The pytest step includes the offline eval regression gate. `ci/github-actions-ci.yml` is the original
+copy of the same workflow.
 
 **Configuration** (env vars, all optional):
 
@@ -176,6 +176,16 @@ video/audio checks, not the transcript. First full run (transcript-heavy rubric)
 (anonymised IDs only; raw outputs go to the git-ignored `eval/runs/`). Iterations and results: **[eval/EVALUATION.md](eval/EVALUATION.md)**.
 `eval/review_analysis.py` measures the trust layer on saved runs. 6 of 10 classes go to review, including 2 of
 the 3 misclassified ones, and 141 of 144 spoken quotes are found in the transcript.
+
+**Advanced evals:**
+- Quadratic weighted κ: 0.786 in-sample, 0.762 with leave-one-out thresholds.
+- Stability: with the production seed, repeats are identical. With varied seeds, ratings flip (pairwise flip rate
+  0.67 on 3 classes), so each headline number is one draw.
+- An LLM judge scores the coaching feedback, and prompt-injection and garbled-ASR inputs are covered by
+  robustness tests.
+- `tests/test_eval_gate.py` is an offline regression gate on frozen, anonymised eval outputs. It runs in the normal
+  `pytest` step, so no API key is needed.
+- `python eval/advanced_eval.py report` reproduces the tables; see EVALUATION.md "Advanced evaluation".
 
 ```bash
 python eval/run_eval.py --data "/path/to/class recordings" --tag v3            # uses provided .vtt transcripts
