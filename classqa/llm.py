@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -74,11 +75,12 @@ class GeminiBackend:
             raise AuthError("GEMINI_API_KEY is not configured (Streamlit secrets or environment).")
         self._client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=timeout_s * 1000))
 
-    def generate(self, model, contents, *, system, schema, thinking) -> RawResponse:
+    def generate(self, model, contents, *, system, schema, thinking, seed: int | None = None) -> RawResponse:
         t = self._types
         cfg = t.GenerateContentConfig(
             system_instruction=system, response_mime_type="application/json", response_schema=schema,
-            thinking_config=t.ThinkingConfig(thinking_level=thinking), max_output_tokens=32768, seed=SEED,
+            thinking_config=t.ThinkingConfig(thinking_level=thinking), max_output_tokens=32768,
+            seed=SEED if seed is None else seed,
             **({"temperature": TEMPERATURE} if TEMPERATURE is not None else {}))
         r = self._client.models.generate_content(model=model, contents=contents, config=cfg)
         um = r.usage_metadata
@@ -96,8 +98,21 @@ class GeminiBackend:
 # ---------------------------------------------------------------- classification
 def classify(e: Exception) -> str:
     """-> 'auth' | 'missing_model' | 'daily_quota' | 'rate_limit' | 'transient' | 'bad_request'"""
+    if isinstance(e, ValidationError):   # request/schema could not even be built locally: retrying cannot help
+        return "bad_request"
     s = str(e)
-    if any(x in s for x in ("API key not valid", "PERMISSION_DENIED", "401", "403 ")):
+    code = getattr(e, "code", None)   # google-genai APIError carries the HTTP status; trust it over the text
+    if isinstance(code, int):
+        if code == 429:
+            return "daily_quota" if ("per day" in s.lower() or "PerDay" in s or "limit: 0" in s) else "rate_limit"
+        if code in (401, 403) or (code == 400 and "API key not valid" in s):
+            return "auth"
+        if code == 404:
+            return "missing_model"
+        if 400 <= code < 500:
+            return "bad_request"
+        return "transient"
+    if "API key not valid" in s or "PERMISSION_DENIED" in s or re.search(r"\b40[13]\b", s):
         return "auth"
     if "404" in s or "NOT_FOUND" in s:
         return "missing_model"
@@ -184,8 +199,10 @@ class LLMClient:
     # ---- main entry
     def generate_json(self, contents: list, schema: type[BaseModel], *, system: str | None = None,
                       thinking: str = "low", models: list[str] | None = None,
-                      on_retry: Callable[[str], None] | None = None) -> tuple[BaseModel, str]:
-        """Return (validated object, model that answered)."""
+                      on_retry: Callable[[str], None] | None = None,
+                      seed: int | None = None) -> tuple[BaseModel, str]:
+        """Return (validated object, model that answered). `seed` overrides the default fixed seed (used so that
+        self-consistency runs are independent samples rather than replays of the same seed)."""
         chain = list(dict.fromkeys(models or [PRIMARY_MODEL, *FALLBACK_MODELS]))
         last: Exception | None = None
         tried_any = False
@@ -204,7 +221,8 @@ class LLMClient:
                     if self.quota is not None:
                         self.quota.incr(model)
                     t0 = time.monotonic()
-                    raw = self.backend.generate(model, msgs, system=system, schema=schema, thinking=thinking)
+                    raw = self.backend.generate(model, msgs, system=system, schema=schema, thinking=thinking,
+                                                **({"seed": seed} if seed is not None else {}))
                     if u is not None:
                         u.add(model, raw.tokens_in, raw.tokens_out)
                     obs.event(log, "llm_call", model=model, schema=schema.__name__, seconds=round(time.monotonic() - t0, 2),

@@ -21,6 +21,20 @@ def test_classify():
     assert classify(E("Server disconnected without sending a response.")) == "transient"
     assert classify(E("400 API key not valid")) == "auth"
     assert classify(E("404 NOT_FOUND model")) == "missing_model"
+    quota = E("429 RESOURCE_EXHAUSTED requests per day; quota id 4013 for project 403x")
+    quota.code = 429                 # numeric status wins over digits that happen to appear in the text
+    assert classify(quota) == "daily_quota"
+    bad = E("something 403 something")
+    bad.code = 403
+    assert classify(bad) == "auth"
+    from pydantic import BaseModel, ValidationError
+
+    class M(BaseModel):
+        x: int
+    try:
+        M.model_validate({"x": "nope"})
+    except ValidationError as ve:   # schema could not be built/validated locally -> never retried
+        assert classify(ve) == "bad_request"
 
 
 def test_rate_limit_backoff_then_success(make_llm):
