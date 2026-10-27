@@ -75,6 +75,22 @@ def merge_runs(score_sets: list[dict[str, int]]) -> tuple[dict[str, float], list
     return mean, ratings, (max(idx) - min(idx)) >= 1
 
 
+# Text inside a transcript that addresses the AI grader rather than the class. The transcript is untrusted data:
+# the label is computed in code from dimension scores, quotes are verified, and these hits force human review.
+_INJECTION = re.compile(
+    r"(ignore|disregard|forget)\s+(all\s+|any\s+|the\s+)?(previous|prior|above|earlier)\s+(instructions|prompts?|rules)"
+    r"|(system|developer)\s+prompt"
+    r"|you\s+are\s+(now\s+)?(an?\s+)?(ai|assistant|language\s+model|chatgpt|gemini)\b"
+    r"|\b(rate|score|grade|mark)\s+(this|the)\s+(class|lesson|teacher|session)\s+(as\s+)?(excellent|good|5|five|top)"
+    r"|(give|assign)\s+(this|the)\s+(class|lesson|teacher)\s+(a\s+)?(rating|score)\s+of"
+    r"|\bnew\s+instructions\s*:", re.I)
+
+
+def injection_markers(transcript_text: str) -> int:
+    """Number of instruction-like phrases aimed at an AI grader found in the transcript."""
+    return len(_INJECTION.findall(transcript_text))
+
+
 BORDERLINE_MARGIN = float(os.environ.get("CLASSQA_BORDERLINE_MARGIN", "0.05"))
 
 
@@ -87,8 +103,11 @@ def borderline(score: float, margin: float | None = None) -> float | None:
 
 def review_reasons(*, confidence: str, rating: str, holistic: str, weighted: float, run_ratings: list[str],
                    quote_stats: dict, missing_signals: list[str], major_flags: int,
-                   capped: bool = False) -> list[str]:
+                   capped: bool = False, injection_hits: int = 0) -> list[str]:
     reasons = []
+    if injection_hits:
+        reasons.append(f"The transcript contains {injection_hits} instruction-like phrase(s) addressed to an AI "
+                       "grader (possible prompt injection) - check the rating by hand.")
     if confidence == "Low":
         reasons.append("Model confidence is low.")
     gap = abs(rubric.RATINGS.index(rating) - rubric.RATINGS.index(holistic))

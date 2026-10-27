@@ -54,8 +54,9 @@ class FakeBackend:
         self.deleted = []
         self._a = 0
 
-    def generate(self, model, contents, *, system, schema, thinking):
+    def generate(self, model, contents, *, system, schema, thinking, seed=None):
         self.calls.append((model, schema.__name__))
+        self.seeds = [*getattr(self, "seeds", []), seed]
         if self.script:
             item = self.script.pop(0)
             if isinstance(item, Exception):

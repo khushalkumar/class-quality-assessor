@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import llm as llm_mod
 from . import media, obs, quality, rubric
 from . import metrics as M
 from .errors import ClassQAError, MediaError
@@ -275,7 +276,9 @@ def run(ctx: JobContext) -> dict:
               f"Scoring against the 8x8 rubric (run {i + 1}/{ctx.self_consistency})", "scoring")
 
             def call():
-                obj, model = ctx.llm.generate_json(contents, Assessment, system=SYSTEM, thinking="high")
+                # run 0 keeps the default fixed seed; extra runs use distinct seeds so they are real resamples
+                obj, model = ctx.llm.generate_json(contents, Assessment, system=SYSTEM, thinking="high",
+                                                   seed=(llm_mod.SEED + i) if i else None)
                 return {"assessment": obj.model_dump(), "model": model}
 
             d = _ck(ctx, f"score_{i}", score_version, call)
@@ -309,8 +312,10 @@ def build_report(runs: list[tuple[Assessment, str]], met: dict, sig_audio: dict,
         conf = "Low"
 
     adump = a.model_dump()
-    qstats = quality.verify_evidence(adump, render(tr, max_chars=10 ** 9))
-    reasons = quality.review_reasons(confidence=conf, rating=rating, holistic=a.holistic_rating, weighted=ws,
+    full_text = render(tr, max_chars=10 ** 9)
+    qstats = quality.verify_evidence(adump, full_text)
+    inj = quality.injection_markers(full_text)
+    reasons = quality.review_reasons(injection_hits=inj, confidence=conf, rating=rating, holistic=a.holistic_rating, weighted=ws,
                                      run_ratings=run_ratings, quote_stats=qstats, missing_signals=missing,
                                      major_flags=len(major), capped=capped)
     return {
@@ -325,6 +330,7 @@ def build_report(runs: list[tuple[Assessment, str]], met: dict, sig_audio: dict,
         "self_consistency": {"runs": len(runs), "ratings": run_ratings, "disagree": disagree,
                              "per_run_scores": score_sets},
         "evidence_check": qstats,
+        "injection_markers": inj,
         "missing_signals": missing,
         "assessment": adump,
         "metrics": {"transcript": met, "audio_signal": sig_audio, "video_signal": sig_video},

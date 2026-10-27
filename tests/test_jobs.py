@@ -96,6 +96,14 @@ def test_self_consistency_disagreement_needs_review(runner, media_dir):
     assert j.status == JobStatus.NEEDS_REVIEW and j.result["self_consistency"]["disagree"]
 
 
+def test_self_consistency_runs_use_distinct_seeds(runner, media_dir):
+    from classqa import llm
+    b = FakeBackend()
+    _run(runner(b), media_dir / "good.mp4", self_consistency=2)
+    scoring = [s for (m, name), s in zip(b.calls, b.seeds, strict=True) if name == "Assessment"]
+    assert scoring == [None, llm.SEED + 1]   # run 0 = default fixed seed, run 1 = a real resample
+
+
 def test_upload_media_deleted_even_on_failure(runner, media_dir, tmp_path):
     up = tmp_path / "upload.mp4"
     shutil.copy(media_dir / "corrupt.mp4", up)
