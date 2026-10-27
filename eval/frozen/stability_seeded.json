@@ -1,0 +1,222 @@
+{
+ "repeats": 3,
+ "seed": "varied",
+ "classes": [
+  {
+   "id": "EX-1",
+   "label": "Excellent",
+   "runs": [
+    {
+     "rating": "Average",
+     "weighted_score": 2.95,
+     "holistic": "Average",
+     "capped": false,
+     "needs_review": true,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 2.0,
+      "individual_engagement": 3.0,
+      "teaching_clarity": 3.0,
+      "energy_warmth": 2.0,
+      "structure_closure": 3.0,
+      "professional_setup": 5.0
+     },
+     "evidence_check": {
+      "exact": 16,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 2
+     }
+    },
+    {
+     "rating": "Excellent",
+     "weighted_score": 3.85,
+     "holistic": "Good",
+     "capped": false,
+     "needs_review": false,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 3.0,
+      "individual_engagement": 4.0,
+      "teaching_clarity": 4.0,
+      "energy_warmth": 3.0,
+      "structure_closure": 5.0,
+      "professional_setup": 5.0
+     },
+     "evidence_check": {
+      "exact": 15,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 3
+     }
+    },
+    {
+     "rating": "Average",
+     "weighted_score": 3.0,
+     "holistic": "Average",
+     "capped": false,
+     "needs_review": false,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 2.0,
+      "individual_engagement": 4.0,
+      "teaching_clarity": 3.0,
+      "energy_warmth": 2.0,
+      "structure_closure": 2.0,
+      "professional_setup": 5.0
+     },
+     "evidence_check": {
+      "exact": 15,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 3
+     }
+    }
+   ]
+  },
+  {
+   "id": "AV-1",
+   "label": "Average",
+   "runs": [
+    {
+     "rating": "Poor",
+     "weighted_score": 2.45,
+     "holistic": "Poor",
+     "capped": false,
+     "needs_review": true,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 2.0,
+      "individual_engagement": 3.0,
+      "teaching_clarity": 3.0,
+      "energy_warmth": 2.0,
+      "structure_closure": 2.0,
+      "professional_setup": 3.0
+     },
+     "evidence_check": {
+      "exact": 14,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 4
+     }
+    },
+    {
+     "rating": "Poor",
+     "weighted_score": 1.9,
+     "holistic": "Poor",
+     "capped": false,
+     "needs_review": false,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 1.0,
+      "individual_engagement": 2.0,
+      "teaching_clarity": 2.0,
+      "energy_warmth": 2.0,
+      "structure_closure": 1.0,
+      "professional_setup": 3.0
+     },
+     "evidence_check": {
+      "exact": 9,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 2
+     }
+    },
+    {
+     "rating": "Average",
+     "weighted_score": 2.9,
+     "holistic": "Average",
+     "capped": false,
+     "needs_review": false,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 2.0,
+      "individual_engagement": 3.0,
+      "teaching_clarity": 3.0,
+      "energy_warmth": 3.0,
+      "structure_closure": 2.0,
+      "professional_setup": 4.0
+     },
+     "evidence_check": {
+      "exact": 8,
+      "approximate": 1,
+      "unverified": 0,
+      "nonverbal": 3
+     }
+    }
+   ]
+  },
+  {
+   "id": "PO-2",
+   "label": "Poor",
+   "runs": [
+    {
+     "rating": "Average",
+     "weighted_score": 3.05,
+     "holistic": "Average",
+     "capped": false,
+     "needs_review": false,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 2.0,
+      "individual_engagement": 4.0,
+      "teaching_clarity": 3.0,
+      "energy_warmth": 3.0,
+      "structure_closure": 2.0,
+      "professional_setup": 4.0
+     },
+     "evidence_check": {
+      "exact": 10,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 2
+     }
+    },
+    {
+     "rating": "Good",
+     "weighted_score": 3.35,
+     "holistic": "Average",
+     "capped": false,
+     "needs_review": true,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 3.0,
+      "individual_engagement": 4.0,
+      "teaching_clarity": 4.0,
+      "energy_warmth": 3.0,
+      "structure_closure": 2.0,
+      "professional_setup": 4.0
+     },
+     "evidence_check": {
+      "exact": 10,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 1
+     }
+    },
+    {
+     "rating": "Average",
+     "weighted_score": 3.05,
+     "holistic": "Average",
+     "capped": false,
+     "needs_review": false,
+     "model": "gemini-3.5-flash-lite",
+     "dimension_scores": {
+      "rapport_opening": 2.0,
+      "individual_engagement": 4.0,
+      "teaching_clarity": 3.0,
+      "energy_warmth": 3.0,
+      "structure_closure": 2.0,
+      "professional_setup": 4.0
+     },
+     "evidence_check": {
+      "exact": 12,
+      "approximate": 0,
+      "unverified": 0,
+      "nonverbal": 1
+     }
+    }
+   ]
+  }
+ ]
+}

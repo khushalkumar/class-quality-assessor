@@ -1,0 +1,140 @@
+{
+ "tag": "v4-l35",
+ "requested_model": "gemini-3-flash-preview",
+ "classes": [
+  {
+   "id": "EX-2",
+   "label": "Excellent",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 4,
+   "evidence_grounding": 4,
+   "actionability": 5,
+   "tone": 5,
+   "unsupported_claims": 0,
+   "overall": 4
+  },
+  {
+   "id": "GO-1",
+   "label": "Good",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 5,
+   "evidence_grounding": 5,
+   "actionability": 5,
+   "tone": 4,
+   "unsupported_claims": 0,
+   "overall": 4
+  },
+  {
+   "id": "GO-2",
+   "label": "Good",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 5,
+   "evidence_grounding": 3,
+   "actionability": 5,
+   "tone": 5,
+   "unsupported_claims": 1,
+   "overall": 4
+  },
+  {
+   "id": "AV-1",
+   "label": "Average",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 4,
+   "evidence_grounding": 3,
+   "actionability": 5,
+   "tone": 5,
+   "unsupported_claims": 2,
+   "overall": 4
+  },
+  {
+   "id": "AV-2",
+   "label": "Average",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 5,
+   "evidence_grounding": 5,
+   "actionability": 5,
+   "tone": 4,
+   "unsupported_claims": 0,
+   "overall": 5
+  },
+  {
+   "id": "PO-1",
+   "label": "Poor",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 5,
+   "evidence_grounding": 5,
+   "actionability": 5,
+   "tone": 5,
+   "unsupported_claims": 0,
+   "overall": 5
+  },
+  {
+   "id": "PO-2",
+   "label": "Poor",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 4,
+   "evidence_grounding": 3,
+   "actionability": 5,
+   "tone": 5,
+   "unsupported_claims": 3,
+   "overall": 4
+  },
+  {
+   "id": "QI-1",
+   "label": "Poor",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 3,
+   "evidence_grounding": 2,
+   "actionability": 5,
+   "tone": 5,
+   "unsupported_claims": 2,
+   "overall": 3
+  },
+  {
+   "id": "QI-2",
+   "label": "Poor",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 5,
+   "evidence_grounding": 5,
+   "actionability": 5,
+   "tone": 5,
+   "unsupported_claims": 0,
+   "overall": 5
+  },
+  {
+   "id": "EX-1",
+   "label": "Excellent",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 4,
+   "evidence_grounding": 2,
+   "actionability": 4,
+   "tone": 5,
+   "unsupported_claims": 1,
+   "overall": 3
+  }
+ ],
+ "controls": [
+  {
+   "id": "EX-1",
+   "label": "Excellent",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 1,
+   "evidence_grounding": 1,
+   "actionability": 1,
+   "tone": 3,
+   "unsupported_claims": 1,
+   "overall": 1
+  },
+  {
+   "id": "PO-1",
+   "label": "Poor",
+   "model": "gemini-3.1-flash-lite-preview",
+   "specificity": 1,
+   "evidence_grounding": 1,
+   "actionability": 1,
+   "tone": 3,
+   "unsupported_claims": 0,
+   "overall": 2
+  }
+ ]
+}

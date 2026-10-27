@@ -114,11 +114,11 @@ def compute(tag: str = "v4-l35", other: str | None = "v4lite") -> dict:
                             "qwk": round(em.quadratic_kappa(act, hol), 3)}
     if other and (FROZEN / f"{other}.json").exists():
         res["cross_model"] = {"other": other, **cross_model(classes, load(other))}
-    st = FROZEN / "stability.json"
-    if st.exists():
-        sys.path.insert(0, str(HERE))
-        from stability import summarise
-        res["stability"] = summarise(json.loads(st.read_text()))
+    for name in ("stability", "stability_seeded"):
+        st = FROZEN / f"{name}.json"
+        if st.exists():
+            from stability import summarise
+            res[name] = summarise(json.loads(st.read_text()))
     return res
 
 
@@ -148,6 +148,16 @@ def to_md(res: dict) -> str:
               "| dimension | mean abs diff | exact | within one |", "|---|---|---|---|"]
         L += [f"| {SHORT[d]} | {c[d]['mad']} | {c[d]['exact']}/{c['n']} | {c[d]['within_one']}/{c['n']} |"
               for d in DIMS]
+    for name, title in (("stability", "fixed production seed"), ("stability_seeded", "a different seed per repeat")):
+        if name in res:
+            st = res[name]
+            L += ["", f"Stability, 3 scoring repeats per class with {title}: pairwise flip rate "
+                  f"{st['pairwise_flip_rate']}, classes with any flip {st['classes_with_any_flip']}/{st['n_classes']}",
+                  "", "| id | label | ratings | score mean | score sd |", "|---|---|---|---|---|"]
+            L += [f"| {p['id']} | {p['label']} | {', '.join(p['ratings'])} | {p['score_mean']} | {p['score_sd']} |"
+                  for p in st["per_class"]]
+            L += ["", "Mean per-dimension SD across repeats: "
+                  + ", ".join(f"{SHORT[k]} {v}" for k, v in st["mean_dimension_sd"].items())]
     return "\n".join(L)
 
 
