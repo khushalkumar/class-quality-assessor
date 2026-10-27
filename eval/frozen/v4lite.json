@@ -1,0 +1,294 @@
+{
+ "tag": "v4lite",
+ "mode": "vtt",
+ "classes": [
+  {
+   "id": "EX-1",
+   "actual": "Excellent",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 4,
+    "teaching_clarity": 2,
+    "energy_warmth": 2,
+    "structure_closure": 3,
+    "professional_setup": 4
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "High",
+   "major_flags": 1,
+   "quotes": {
+    "exact": 11,
+    "approximate": 0,
+    "unverified": 0,
+    "nonverbal": 1
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "EX-2",
+   "actual": "Excellent",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 4,
+    "teaching_clarity": 3,
+    "energy_warmth": 3,
+    "structure_closure": 2,
+    "professional_setup": 3
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "High",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 6,
+    "approximate": 4,
+    "unverified": 2,
+    "nonverbal": 0
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "GO-1",
+   "actual": "Good",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 3,
+    "teaching_clarity": 3,
+    "energy_warmth": 3,
+    "structure_closure": 2,
+    "professional_setup": 4
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "High",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 10,
+    "approximate": 0,
+    "unverified": 0,
+    "nonverbal": 1
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "GO-2",
+   "actual": "Good",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 3,
+    "teaching_clarity": 3,
+    "energy_warmth": 3,
+    "structure_closure": 4,
+    "professional_setup": 4
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "High",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 5,
+    "approximate": 4,
+    "unverified": 1,
+    "nonverbal": 2
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "AV-1",
+   "actual": "Average",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 3,
+    "teaching_clarity": 2,
+    "energy_warmth": 2,
+    "structure_closure": 2,
+    "professional_setup": 4
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "Medium",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 10,
+    "approximate": 0,
+    "unverified": 0,
+    "nonverbal": 2
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "AV-2",
+   "actual": "Average",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 2,
+    "teaching_clarity": 2,
+    "energy_warmth": 3,
+    "structure_closure": 3,
+    "professional_setup": 2
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "Medium",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 10,
+    "approximate": 1,
+    "unverified": 0,
+    "nonverbal": 1
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "PO-1",
+   "actual": "Poor",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 3,
+    "teaching_clarity": 3,
+    "energy_warmth": 2,
+    "structure_closure": 2,
+    "professional_setup": 2
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "Medium",
+   "major_flags": 1,
+   "quotes": {
+    "exact": 10,
+    "approximate": 2,
+    "unverified": 0,
+    "nonverbal": 0
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "PO-2",
+   "actual": "Poor",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 4,
+    "teaching_clarity": 3,
+    "energy_warmth": 3,
+    "structure_closure": 2,
+    "professional_setup": 3
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "High",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 9,
+    "approximate": 0,
+    "unverified": 0,
+    "nonverbal": 3
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "QI-1",
+   "actual": "Poor",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 4,
+    "teaching_clarity": 3,
+    "energy_warmth": 3,
+    "structure_closure": 2,
+    "professional_setup": 2
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "Medium",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 9,
+    "approximate": 0,
+    "unverified": 0,
+    "nonverbal": 3
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "QI-2",
+   "actual": "Poor",
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 4,
+    "teaching_clarity": 4,
+    "energy_warmth": 2,
+    "structure_closure": 2,
+    "professional_setup": 1
+   },
+   "capped": false,
+   "holistic": "Poor",
+   "confidence": "High",
+   "major_flags": 2,
+   "quotes": {
+    "exact": 8,
+    "approximate": 0,
+    "unverified": 1,
+    "nonverbal": 3
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "DE-1",
+   "actual": null,
+   "dimension_scores": {
+    "rapport_opening": 2,
+    "individual_engagement": 2,
+    "teaching_clarity": 2,
+    "energy_warmth": 3,
+    "structure_closure": 1,
+    "professional_setup": 2
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "Medium",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 6,
+    "approximate": 1,
+    "unverified": 0,
+    "nonverbal": 3
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  },
+  {
+   "id": "DE-2",
+   "actual": null,
+   "dimension_scores": {
+    "rapport_opening": 3,
+    "individual_engagement": 2,
+    "teaching_clarity": 3,
+    "energy_warmth": 4,
+    "structure_closure": 2,
+    "professional_setup": 5
+   },
+   "capped": false,
+   "holistic": "Average",
+   "confidence": "Medium",
+   "major_flags": 0,
+   "quotes": {
+    "exact": 9,
+    "approximate": 0,
+    "unverified": 0,
+    "nonverbal": 3
+   },
+   "model": "gemini-3.1-flash-lite-preview",
+   "prompt_version": "v4"
+  }
+ ]
+}

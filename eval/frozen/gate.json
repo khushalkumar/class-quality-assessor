@@ -1,0 +1,8 @@
+{
+ "_comment": "CI regression gate floors, checked offline by tests/test_eval_gate.py against the frozen v4-l35 outputs re-scored with the CURRENT rubric (weights, thresholds, red-flag cap). Floors = values measured when the gate was created; raise them when a change improves the metrics, never lower them without a documented reason in EVALUATION.md.",
+ "tag": "v4-l35",
+ "in_sample": {"exact": 7, "within_one": 9, "qwk": 0.78},
+ "leave_one_out": {"exact": 6, "within_one": 9, "qwk": 0.76},
+ "quote_verified_rate": 0.97,
+ "max_unverified_quotes": 3
+}
